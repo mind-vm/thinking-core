@@ -1,9 +1,10 @@
 ---
-title: Reference
 description: Known limitations, license, and where to find the full API reference.
 sidebar:
   order: 1
 ---
+
+# Reference
 
 ## Known limitations
 
@@ -24,7 +25,7 @@ enforcement) to add on top if and when you need them.
 
 For what *is* bounded — prompt size, history, compaction, project
 instructions, log output — see [Fitting a session in the context
-window](/concepts/context/).
+window](../concepts/context.md).
 
 ## API reference
 

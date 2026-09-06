@@ -3,7 +3,7 @@
 - **Status:** Working
 - **Confidence:** Medium
 - **Decided:** 2026-08-21
-- **Last reviewed:** 2026-08-28
+- **Last reviewed:** 2026-09-03
 - **Consumers:** every application — persistence is the one thing agentloop
   deliberately does not provide.
 
@@ -97,3 +97,12 @@ costs nobody anything.
   `modernc.org/sqlite` driver, so an embedding binary still cross-compiles —
   runs both. The library now ships the durable reference store this record
   argued it should not have to.
+- 2026-09-03 — **The kit was not holding stores to the ordering it names.**
+  `StepStoreContract` appended only unique indices, so a store ordering
+  `LastN` by `step_index` passed — and a session that outgrows its history
+  window reuses indices, at which point that store returns an arbitrary
+  window. Two adopters had that store: mind-vm's Postgres store, which
+  found it (mind-vm/platform#11), and the kitchensink's. The kit now appends
+  a repeated index and asserts insertion order; the kitchensink gained an
+  identity column and orders by that — not by its UUIDv7 id, which is
+  monotonic only within one backend, and the store writes through a pool.

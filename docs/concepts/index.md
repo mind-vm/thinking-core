@@ -1,9 +1,10 @@
 ---
-title: Why JavaScript instead of tool calls
 description: How agentloop's turn loop works — one script per turn, a sandboxed executor, and a return value that threads server-side into the next turn.
 sidebar:
   order: 1
 ---
+
+# Why JavaScript instead of tool calls
 
 Most agent frameworks give the model a fixed menu of named tools and ask it
 to emit one structured call per turn. agentloop instead gives the model a
@@ -55,7 +56,7 @@ Neither mechanism bounds the conversation itself, though. For that there are
 four explicit limits — a token budget, chunked compaction, on-demand project
 instructions, and a per-turn log cap — plus one profile that derives all of
 them from a model's context window. See [Fitting a session in the context
-window](/concepts/context/), which matters most if you're pointing agentloop
+window](../concepts/context.md), which matters most if you're pointing agentloop
 at a locally hosted model.
 
 ## Where this stops
@@ -64,12 +65,12 @@ agentloop is a synchronous, single-process design. There's no
 `Promise`/`async`/`.then()` support in the sandbox — goja parses the syntax
 but has no event loop, so a continuation would silently never run, and the
 system prompt warns the model off writing one. See [known
-limitations](/reference/#known-limitations) for the full list.
+limitations](../reference/index.md#known-limitations) for the full list.
 
 ## Next
 
-- [Packages](/concepts/packages/) — what each package is responsible for.
-- [Fitting a session in the context window](/concepts/context/) — the
+- [Packages](../concepts/packages.md) — what each package is responsible for.
+- [Fitting a session in the context window](../concepts/context.md) — the
   bounds that keep a long session inside a model's window.
-- [Extending agentloop](/extending/) — capabilities, sandbox
+- [Extending agentloop](../extending/index.md) — capabilities, sandbox
   composition, stores, and policy.

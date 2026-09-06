@@ -1,9 +1,10 @@
 ---
-title: Packages
 description: What each of agentloop's Go packages is responsible for.
 sidebar:
   order: 2
 ---
+
+# Packages
 
 Each package is usable on its own — a project can take the sandbox and not
 the loop, or the loop with a hand-rolled store. `agentloop`, `sandbox`, and
@@ -33,13 +34,14 @@ The goja-based JS executor and its built-in packs:
 | `markdown` | `require('markdown')` — structured markdown parsing |
 | `ai` | `ai()` / `aiJSON()` sub-calls against the configured LLM |
 | `help` | `help()` — reads every pack's registered help entries |
+| `input` | `ask()` — a confirm, choice or text question put to a human, which the script blocks on. Not in `DefaultCapabilities`: wire it with your own `InputRequester` |
 | skill discovery | `skillList()` / `skillGet()` — introspects the union of loaded packs |
 
 A `PolicyChecker` seam gates side-effecting primitives (`fetch`, `ai`, or
-your own) per call — see [Policy](/extending/#policy). One turn's `log()`
+your own) per call — see [Policy](../extending/index.md#policy). One turn's `log()`
 output is capped at `sandbox.DefaultMaxLogBytes` (16 KB), since logs are
 replayed in every later prompt of the session — see [Per-turn log
-output](/concepts/context/#per-turn-log-output).
+output](../concepts/context.md#per-turn-log-output).
 
 ## `llm`
 
@@ -70,9 +72,9 @@ core sandbox package: `EmailPack` (`sendEmail`), `SecretPack` (`secret`),
 and `OpenAPIPack`, which generates a whole `require()`-able skill — one JS
 function per operation — from an OpenAPI 3 document. Not part of
 `DefaultCapabilities` — wire in the ones you need. See [Extending → Optional
-extension packs](/extending/#optional-extension-packs) and
+extension packs](../extending/index.md#optional-extension-packs) and
 [Extending → Generating a skill from an OpenAPI
-spec](/extending/#generating-a-skill-from-an-openapi-spec).
+spec](../extending/index.md#generating-a-skill-from-an-openapi-spec).
 
 ## `browser`
 
@@ -102,7 +104,7 @@ prompt section to pass as `RunRequest.Context`. `Render` inlines each file
 in full; `RenderCatalog` + `Capabilities` instead put each file's opening
 section in the prompt and expose `projectGet(name)` / `projectList()` so the
 model pulls the rest on demand. See [Project instructions on
-demand](/concepts/context/#project-instructions-on-demand).
+demand](../concepts/context.md#project-instructions-on-demand).
 
 Repository files must resolve inside the root even after symlinks and are
 read through an `os.Root`, so a symlinked `AGENTS.md` can't pull in a file
@@ -128,7 +130,7 @@ session and not another.
 session across every `Run` instead of building a fresh one — a whole
 `goja.Runtime` plus every pack's registration — on every message. Wraps any
 other `SandboxBuilder`. See [Extending → Session-scoped sandbox
-reuse](/extending/#session-scoped-sandbox-reuse) for the
+reuse](../extending/index.md#session-scoped-sandbox-reuse) for the
 correctness problem it has to solve to do that safely.
 
 ## `eval`
@@ -137,7 +139,7 @@ An LLM-judged eval harness: a `Suite` of `Case`s (input + judge criteria),
 each dispatched through an `agentloop.Loop` and scored 0–10 by a judge
 `llm.Client`. `Loop`'s own `Run` method already has exactly the shape a
 runner needs, so `Service` takes one directly — no adapter interface. See
-[Evaluating agent quality](/extending/#evaluating-agent-quality).
+[Evaluating agent quality](../extending/index.md#evaluating-agent-quality).
 
 ## `evalmem`
 
@@ -151,9 +153,9 @@ strips every occurrence out of text or bytes. A nil `*Redactor` is a safe
 pass-through everywhere it's used, so it's entirely opt-in — build one
 with `redact.FromSecrets(...)` and hand it to `Config.Redactor` or
 `eval.NewService`. See [Redacting secrets from
-observability](/extending/#redacting-secrets-from-observability).
+observability](../extending/index.md#redacting-secrets-from-observability).
 
 ## Next
 
-[Extending agentloop](/extending/) covers the seams — capabilities,
+[Extending agentloop](../extending/index.md) covers the seams — capabilities,
 `SandboxBuilder`, stores, and policy — in more depth.

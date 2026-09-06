@@ -112,14 +112,57 @@ func (p *terminalPrompter) confirm(req sandbox.InputRequestData) (any, error) {
 		return granted, nil
 	}
 
-	fmt.Fprintf(p.out, "\n%s [y/N] ", req.Message)
-	line, err := p.readLine()
+	answer, err := p.yesNo(req)
 	if err != nil {
 		return nil, err
 	}
-	answer := strings.EqualFold(strings.TrimSpace(line), "y") || strings.EqualFold(strings.TrimSpace(line), "yes")
 	p.remember(req.Message, answer)
 	return answer, nil
+}
+
+// yesNo puts one y/N question to the terminal and reads the answer.
+func (p *terminalPrompter) yesNo(req sandbox.InputRequestData) (bool, error) {
+	fmt.Fprintf(p.out, "\n%s [y/N] ", req.Message)
+	line, err := p.readLine()
+	if err != nil {
+		return false, err
+	}
+	return strings.EqualFold(strings.TrimSpace(line), "y") || strings.EqualFold(strings.TrimSpace(line), "yes"), nil
+}
+
+// questions returns the InputRequester behind the agent's ask()
+// primitive: the same terminal, none of the memory.
+//
+// The prompter remembers a confirm as a grant, and that is right for
+// "may I run this?" — a retried turn should not ask twice, and a yes is
+// worth keeping for the session. It is wrong for a question the script
+// itself is asking. "Delete the drafts?" answered yes once is not a
+// standing permission, must not be answered on the user's behalf next
+// time, and must not turn up in `sessions show` as something the
+// session approved. Auto and deny are likewise answers to "may I?", so
+// under either mode a question has no answer and reports errNoTerminal,
+// which is already how choice and text behave.
+func (p *terminalPrompter) questions() sandbox.InputRequester {
+	return questioner{p}
+}
+
+type questioner struct{ p *terminalPrompter }
+
+// Request implements sandbox.InputRequester.
+func (q questioner) Request(req sandbox.InputRequestData) (any, error) {
+	if q.p.mode != approvalPrompt {
+		return nil, errNoTerminal
+	}
+	switch req.InputType {
+	case "confirm":
+		return q.p.yesNo(req)
+	case "choice":
+		return q.p.choice(req)
+	case "text":
+		return q.p.text(req)
+	default:
+		return nil, fmt.Errorf("unsupported prompt type %q", req.InputType)
+	}
 }
 
 func (p *terminalPrompter) choice(req sandbox.InputRequestData) (any, error) {
@@ -222,3 +265,4 @@ func (p *terminalPrompter) remember(question string, answer bool) {
 }
 
 var _ sandbox.InputRequester = (*terminalPrompter)(nil)
+var _ sandbox.InputRequester = questioner{}

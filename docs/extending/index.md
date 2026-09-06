@@ -1,9 +1,10 @@
 ---
-title: Extending agentloop
 description: Custom capabilities, sandbox composition, stores, policy, optional extension packs, OpenAPI-generated skills, session-scoped sandbox reuse, distributed tracing, context management, evaluating agent quality, and redacting secrets.
 sidebar:
   order: 1
 ---
+
+# Extending agentloop
 
 agentloop ships a minimal default (`DefaultCapabilities`,
 `DefaultSandboxBuilder`, `agentloopmem`'s in-memory stores,
@@ -85,7 +86,8 @@ Implement `sandbox.PolicyChecker` to gate side-effecting primitives —
 ## Optional extension packs
 
 The core `sandbox` package's built-in packs — `require`, `http`, `fetch`,
-`markdown`, `ai`, `help`, skills — are the minimal set every deployment
+`markdown`, `ai`, `help`, skills, and `input` (see [Human in the
+loop](#human-in-the-loop)) — are the minimal set every deployment
 needs. The `ext` package holds packs that are generically useful but not
 universal, so they stay out of `DefaultCapabilities` and out of `sandbox`
 itself:
@@ -123,6 +125,47 @@ sandbox.DefaultPolicy{AllowTools: []string{"sendEmail", "secret"}}
 `documentSearch` and `stores` are read-only against an application-scoped
 backend and aren't policy-gated by default — gate them yourself in a
 custom `PolicyChecker` if that scoping isn't enough.
+
+## Human in the loop
+
+`sandbox.InputPack(requester)` gives the agent `ask()`: a confirm, choice
+or text question the script blocks on until a person answers.
+
+```js
+if (ask({type: "confirm", message: "Archive the 12 stale drafts?"})) { … }
+const env = ask({type: "choice", message: "Deploy where?", options: ["staging", "prod"]});
+const note = ask({type: "text", message: "Release note?", placeholder: "one line"});
+```
+
+It is not in `DefaultCapabilities`, because nothing generic knows whether
+there is a human or how to reach one. Wrap it in a `Capability` that
+closes over your transport:
+
+```go
+caps = append(caps, agentloop.Capability{
+    Name:        "ask",
+    Description: "ask the user a question and wait for the answer",
+    Build: func(agentloop.BuildContext) ([]sandbox.Pack, error) {
+        return []sandbox.Pack{sandbox.InputPack(myRequester)}, nil
+    },
+})
+```
+
+`sandbox.InputRequester` is one method, `Request(InputRequestData) (any,
+error)`, which blocks until the reply arrives — a bool for confirm, a
+string for choice and text. `cmd/agentloop` implements it against the
+terminal; a web host implements it against whatever carries the question
+out and the answer back (an SSE stream plus a reply endpoint, a
+websocket), keyed by session so the reply finds the run that asked. It is
+the same seam `FetchPack` uses to ask for a domain approval, so one
+implementation serves both.
+
+A nil requester registers the prompt only: `ask()` is documented to the
+model, and calling it errors. That is deliberate — an unattended run fails
+inside the script, where the model sees the reason and can plan around
+it, rather than at parse time with a `ReferenceError`. The trace shows an
+`ask` event when a question goes out and an `ask_result` (or `error`)
+when it is answered.
 
 ## Generating a skill from an OpenAPI spec
 
@@ -314,7 +357,7 @@ seams too, but they're covered on their own page: what fills the prompt, the
 four bounds that keep it inside a model's window, and
 `agentloop.ProfileFor(window)`, which derives all of them from one number.
 See [Fitting a session in the context
-window](/concepts/context/) — it matters most if you're pointing agentloop
+window](../concepts/context.md) — it matters most if you're pointing agentloop
 at a locally hosted model, where the defaults are wrong by an order of
 magnitude.
 
@@ -393,7 +436,7 @@ safe. The complete, redacted text still arrives via the terminal
 
 ## Next
 
-[Reference](/reference/) has the full list of known limitations —
+[Reference](../reference/index.md) has the full list of known limitations —
 worth reading before extending agentloop into a production path, since
 several of them (no durable execution, no built-in cost ceiling) are things
 an application built on top has to supply itself.

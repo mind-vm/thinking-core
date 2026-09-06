@@ -19,14 +19,25 @@ var networkCapabilities = []string{"fetch", "http"}
 // place rather than reconstructing it, so a capability added to the
 // library later still reaches the CLI without a change here.
 //
-// Two edits. DefaultCapabilities builds FetchPack with a nil
+// Three edits. DefaultCapabilities builds FetchPack with a nil
 // InputRequester — the documented "no human available" case, where an
 // unapproved domain fails instead of asking — and a CLI does have a
 // human, so that capability's Build is swapped for one holding the
-// requester. And the workspace pack is appended, rooted at the
-// directory the invocation names.
-func buildCapabilities(o *options, client llm.Client, requester sandbox.InputRequester, root *os.Root, warn func(string)) []agentloop.Capability {
+// requester. The workspace pack is appended, rooted at the directory
+// the invocation names. And because there is a human, the agent may
+// put a question to them: ask() is appended with asker, which is the
+// prompter's question-asking face rather than its permission-granting
+// one — see terminalPrompter.questions for why those differ.
+func buildCapabilities(o *options, client llm.Client, requester, asker sandbox.InputRequester, root *os.Root, warn func(string)) []agentloop.Capability {
 	caps := agentloop.DefaultCapabilities(client, o.model)
+
+	caps = append(caps, agentloop.Capability{
+		Name:        "ask",
+		Description: "ask the user a question and wait for the answer",
+		Build: func(agentloop.BuildContext) ([]sandbox.Pack, error) {
+			return []sandbox.Pack{sandbox.InputPack(asker)}, nil
+		},
+	})
 
 	if o.noNetwork {
 		caps = slices.DeleteFunc(caps, func(c agentloop.Capability) bool {

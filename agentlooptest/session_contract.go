@@ -3,6 +3,7 @@ package agentlooptest
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"testing"
 
 	"github.com/mind-vm/agentloop"
@@ -98,7 +99,7 @@ func SessionStoreContract(t *testing.T, h SessionStoreHarness) {
 		if err != nil {
 			t.Fatalf("Get: %v", err)
 		}
-		if string(sess.Data) != `{"step":2}` {
+		if !sameJSON(t, sess.Data, `{"step":2}`) {
 			t.Fatalf("Session.Data = %q, want the latest snapshot %q", sess.Data, `{"step":2}`)
 		}
 	})
@@ -142,7 +143,7 @@ func SessionStoreContract(t *testing.T, h SessionStoreHarness) {
 		if err != nil {
 			t.Fatalf("Get: %v", err)
 		}
-		if string(sess.Data) != `{"keep":true}` {
+		if !sameJSON(t, sess.Data, `{"keep":true}`) {
 			t.Fatalf("finalizing a run must not discard its data snapshot: got %q", sess.Data)
 		}
 	})
@@ -163,8 +164,26 @@ func SessionStoreContract(t *testing.T, h SessionStoreHarness) {
 		if err != nil {
 			t.Fatalf("Get b: %v", err)
 		}
-		if string(gotA.Data) != `{"who":"a"}` || string(gotB.Data) != `{"who":"b"}` {
+		if !sameJSON(t, gotA.Data, `{"who":"a"}`) || !sameJSON(t, gotB.Data, `{"who":"b"}`) {
 			t.Fatalf("sessions leaked into each other: a=%q b=%q", gotA.Data, gotB.Data)
 		}
 	})
+}
+
+// sameJSON compares a snapshot as JSON rather than as bytes, for the same
+// reason the step contract does for ToolArgs: a store that keeps the
+// snapshot in a JSONB column re-serializes it — Postgres hands `{"a":1}`
+// back as `{"a": 1}` — and the loop, which parses it, cannot tell. A kit
+// that compared bytes was holding a store to the reference
+// implementation's column type, not to the loop's contract.
+func sameJSON(t *testing.T, got json.RawMessage, want string) bool {
+	t.Helper()
+	var g, w any
+	if err := json.Unmarshal(got, &g); err != nil {
+		t.Fatalf("Session.Data is not JSON (%q): %v", got, err)
+	}
+	if err := json.Unmarshal([]byte(want), &w); err != nil {
+		t.Fatalf("want is not JSON (%q): %v", want, err)
+	}
+	return reflect.DeepEqual(g, w)
 }

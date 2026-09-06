@@ -1,9 +1,10 @@
 ---
-title: Quickstart
 description: Install agentloop, wire up a loop with in-memory stores, and run the example CLI.
 sidebar:
   order: 1
 ---
+
+# Quickstart
 
 ## Install
 
@@ -69,13 +70,13 @@ Groq, together.ai, and a local vLLM/Ollama server all work the same way.
 A local server needs more than the URL, though: the defaults above assume a
 frontier model's context window, and a placeholder `OPENAI_API_KEY` is still
 required even where the value is ignored. See [Running against a local
-model](/start/local-models/).
+model](../start/local-models.md).
 
 ## Next
 
-- [Running against a local model](/start/local-models/) — Ollama,
+- [Running against a local model](../start/local-models.md) — Ollama,
   llama.cpp, vLLM, or LM Studio, sized to the window they actually serve.
-- [Why JavaScript instead of tool calls](/concepts/) — the design
+- [Why JavaScript instead of tool calls](../concepts/index.md) — the design
   the rest of the docs assume.
-- [Extending agentloop](/extending/) — plugging in your own
+- [Extending agentloop](../extending/index.md) — plugging in your own
   capabilities, stores, and policy for production use.

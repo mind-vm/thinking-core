@@ -1,9 +1,10 @@
 ---
-title: The CLI
 description: Run agentloop from the terminal — durable sessions, a machine-readable output mode, workspace file access, and commands.
 sidebar:
   order: 1
 ---
+
+# The CLI
 
 `cmd/agentloop` is the engine as a command. It discovers `AGENTS.md` and
 `SKILL.md` from a project directory, composes the default capability bundle,
@@ -118,6 +119,25 @@ reach anything you did not point the agent at, and a prompt per file would
 train you to approve without reading — the mutations are where the
 consequence is.
 
+### Questions
+
+A question is not a permission. The agent can also `ask()` you something —
+a yes/no, a choice, a line of text — and your answer goes back into its
+script:
+
+```
+Deploy where?
+  1) staging
+  2) prod
+Choose [1]
+```
+
+Questions arrive at the same terminal but are never remembered: a yes to
+"archive the stale drafts?" is not a standing grant, is not answered on
+your behalf next time, and does not appear in `sessions show`. Under
+`--approve auto` or `deny` a question has no answer, so `ask()` fails and
+the agent is told so.
+
 ### Narrowing what a run can do
 
 | Flag | Effect |
@@ -166,4 +186,4 @@ per-turn log cap, and how much of an `AGENTS.md` rides in the prompt versus
 waits behind `projectGet()`; it also installs a compactor, which an unsized
 run does not have. Left unset, every one of those stays at a default that
 assumes a large window. See [Running against a local
-model](/start/local-models/).
+model](../start/local-models.md).

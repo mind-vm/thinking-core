@@ -1,9 +1,10 @@
 ---
-title: Running against a local model
 description: Point the client at Ollama, llama.cpp, vLLM, or LM Studio; size every context setting to the served window; and the four things that bite on local hardware.
 sidebar:
   order: 2
 ---
+
+# Running against a local model
 
 The wire protocol is the easy part — `llm.NewOpenAI` already talks to any
 server that speaks OpenAI's `/chat/completions`, which every common local
@@ -37,7 +38,7 @@ Ports vary with how you launched the server; take the ones above as the
 usual defaults, not as guarantees.
 
 Check it before writing any code — [`agentloop
-doctor`](/cli/#pointing-at-another-provider) makes one real request through
+doctor`](../cli/index.md#pointing-at-another-provider) makes one real request through
 the same path a run uses, including the fallback for gateways that refuse to
 stream:
 
@@ -49,7 +50,7 @@ agentloop doctor
 
 This is the step that matters. agentloop's defaults assume a frontier model,
 and against a local window they are wrong by an order of magnitude — see
-[Fitting a session in the context window](/concepts/context/) for what
+[Fitting a session in the context window](../concepts/context.md) for what
 they are and why.
 
 `agentloop.ProfileFor(window)` derives all of them from one number:
@@ -197,7 +198,7 @@ func main() {
 - **Turn spans** carry `agentloop.budget.estimated_tokens` against
   `agentloop.budget.allowance`, so headroom is visible before history starts
   disappearing. See [Distributed
-  tracing](/extending/#distributed-tracing-opentelemetry).
+  tracing](../extending/index.md#distributed-tracing-opentelemetry).
 - **Token counts may read zero.** `RunResult.Tokens` comes from the server's
   `usage` field; a server that omits it reports nothing. The context budget
   doesn't depend on this — it estimates the prompt itself — so budgeting
@@ -205,7 +206,7 @@ func main() {
 
 ## Using the CLI against a local server
 
-[`agentloop`](/cli/) takes the same `OPENAI_BASE_URL` /
+[`agentloop`](../cli/index.md) takes the same `OPENAI_BASE_URL` /
 `OPENAI_CHAT_MODEL` / `OPENAI_API_KEY` environment, and `--context-window`
 is the same one number this page has been about:
 
@@ -247,6 +248,6 @@ local runs come back plausible but never touch a tool, check for an
 
 ## Next
 
-- [Fitting a session in the context window](/concepts/context/) — what
+- [Fitting a session in the context window](../concepts/context.md) — what
   `ProfileFor` is setting, and what to override.
-- [Extending agentloop](/extending/) — capabilities, stores, and policy.
+- [Extending agentloop](../extending/index.md) — capabilities, stores, and policy.

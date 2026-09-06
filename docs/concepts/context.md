@@ -1,9 +1,10 @@
 ---
-title: Fitting a session in the context window
 description: What actually fills the prompt, the four bounds that keep it inside a model's window, and one profile that derives all of them from the window size.
 sidebar:
   order: 3
 ---
+
+# Fitting a session in the context window
 
 agentloop's defaults assume a frontier model. Against a locally hosted one —
 8k, 16k, 32k served context — they are not slightly wrong, they are wrong by
@@ -33,7 +34,7 @@ Three mechanisms predate any explicit bound, and they do most of the work:
   server-side into the next turn's `args`; the model sees only a structural
   digest — keys, types, array lengths, not values. A large result set costs
   one line of TypeScript-ish type text. See
-  [Why a real return value beats re-serialised text](/concepts/#why-a-real-return-value-beats-re-serialised-text).
+  [Why a real return value beats re-serialised text](../concepts/index.md#why-a-real-return-value-beats-re-serialised-text).
 - **Stale code is elided.** Only the most recent turn's script stays
   verbatim; earlier ones become a one-line marker, since their effect
   already lives in `args` and their observations in the logs. Without this,
@@ -259,7 +260,7 @@ hence `p.MaxLogBytes` and `p.ProjectInlineBytes` passed by hand above.
 A profile is a starting point, not a constraint. Read the fields and
 override what your workload justifies.
 
-The [CLI](/cli/) wires the same thing behind one flag —
+The [CLI](../cli/index.md) wires the same thing behind one flag —
 `agentloop --context-window 8192` — including installing a compactor and
 switching project instructions to retrieval mode.
 
@@ -277,10 +278,10 @@ rather than one for all of them.
 
 ## Next
 
-- [Running against a local model](/start/local-models/) — this page's
+- [Running against a local model](../start/local-models.md) — this page's
   settings applied end to end, plus the timeouts and the quiet failure mode
   local hardware brings with it.
-- [Extending agentloop](/extending/) — the seams: capabilities,
+- [Extending agentloop](../extending/index.md) — the seams: capabilities,
   `SandboxBuilder`, stores, and policy.
-- [Reference](/reference/#known-limitations) — what these bounds still
+- [Reference](../reference/index.md#known-limitations) — what these bounds still
   don't cover, including the absence of a spend ceiling.

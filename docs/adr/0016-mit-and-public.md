@@ -1,6 +1,6 @@
 # ADR-0016: MIT and public
 
-- **Status:** Working
+- **Status:** Replaced by [platform ADR-0001](../../../docs/adr/0001-private-and-proprietary.md)
 - **Confidence:** High
 - **Decided:** 2026-08-26
 - **Last reviewed:** 2026-08-28
