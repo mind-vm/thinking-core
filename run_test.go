@@ -3,6 +3,7 @@ package agentloop_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -222,8 +223,8 @@ func TestRun_NoFenceNoMarker_FreeformAsFinal(t *testing.T) {
 }
 
 // TestRun_RequireScript_CorrectsProse confirms a RequireScript loop sends
-// a scriptless reply back as a correction, and still accepts prose once
-// the corrections run out.
+// a scriptless reply back as a correction, and fails once the corrections
+// run out: a reply that ran nothing is not a completed run.
 func TestRun_RequireScript_CorrectsProse(t *testing.T) {
 	fake := newFakeLLM("fake",
 		llm.CompletionResponse{Content: "Please provide the package."},
@@ -242,8 +243,8 @@ func TestRun_RequireScript_CorrectsProse(t *testing.T) {
 	})
 
 	result, err := loop.Run(context.Background(), agentloop.RunRequest{SessionID: "s1", Message: "hi"})
-	if err != nil {
-		t.Fatalf("run: %v", err)
+	if !errors.Is(err, agentloop.ErrNoScript) {
+		t.Fatalf("run err = %v, want ErrNoScript", err)
 	}
 	if got := len(fake.Calls()); got != 3 {
 		t.Fatalf("llm calls: got %d, want 3", got)
@@ -252,8 +253,40 @@ func TestRun_RequireScript_CorrectsProse(t *testing.T) {
 	if last := second[len(second)-1].Content; !strings.Contains(last, "no ```javascript block") {
 		t.Errorf("second call should end with the correction, got %q", last)
 	}
-	if result.Status != "completed" || result.FinalText != "Still prose." {
+	if result.Status != "error" || result.FinalText == "Still prose." {
 		t.Errorf("result: got %q %q", result.Status, result.FinalText)
+	}
+}
+
+// TestRun_RequireScript_NamesTheToolCall: a model that replied in its
+// native tool-call format believes it acted, so the correction names the
+// function it tried to call and says where that call belongs.
+func TestRun_RequireScript_NamesTheToolCall(t *testing.T) {
+	for _, reply := range []string{
+		"<tool_call>\n<function=readFile>\n('inventory.go')\n</function>\n</tool_call>",
+		"<tool_call>\n{\"name\": \"readFile\", \"arguments\": {\"path\": \"inventory.go\"}}\n</tool_call>",
+		`{"name": "readFile", "arguments": {"path": "inventory.go"}}`,
+		"<tool_call>\nreadFile inventory.go\n</tool_call>",
+	} {
+		fake := newFakeLLM("fake",
+			llm.CompletionResponse{Content: reply},
+			llm.CompletionResponse{Content: "DONE\nok"},
+		)
+		sessions := newMemorySessions()
+		sessions.put("s1", agentloop.Session{ID: "s1"})
+		loop := agentloop.New(agentloop.Config{
+			LLM: fake, Sessions: sessions, Steps: newMemorySteps(),
+			SandboxBuilder: emptyBuilder{}, RequireScript: true,
+		})
+		if _, err := loop.Run(context.Background(), agentloop.RunRequest{SessionID: "s1", Message: "hi"}); err != nil {
+			t.Fatalf("run: %v", err)
+		}
+		msgs := fake.Calls()[1].Messages
+		last := msgs[len(msgs)-1].Content
+		named := strings.Contains(last, "tool call to `readFile`") || (!strings.Contains(reply, "<function=") && !strings.Contains(reply, `"name"`) && strings.Contains(last, "tool call to the function"))
+		if !named || !strings.Contains(last, "inside run(args)") {
+			t.Errorf("correction for %q = %q", reply, last)
+		}
 	}
 }
 

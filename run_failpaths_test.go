@@ -401,6 +401,51 @@ func TestRun_EmptyResponse_RetriesThenSucceeds(t *testing.T) {
 	}
 }
 
+// An empty reply is only diagnosable if the call that produced it is on
+// the record: a "length" finish with thinking tokens and no content says
+// the output budget went to reasoning, which a bare retry warning cannot.
+func TestRun_EveryCallReportsThinkingAndFinishReason(t *testing.T) {
+	sessions := newMemorySessions()
+	sessions.put("s1", agentloop.Session{ID: "s1"})
+
+	loop := agentloop.New(agentloop.Config{
+		LLM: newFakeLLM("fake",
+			llm.CompletionResponse{Reasoning: "let me think", FinishReason: "length", OutputTokens: 900, ReasoningTokens: 900},
+			llm.CompletionResponse{Content: "DONE\nok", FinishReason: "stop", OutputTokens: 5},
+		),
+		Sessions:       sessions,
+		Steps:          newMemorySteps(),
+		SandboxBuilder: emptyBuilder{},
+	})
+
+	var calls []agentloop.RunEvent
+	_, err := loop.Run(context.Background(), agentloop.RunRequest{
+		SessionID: "s1", Message: "hi",
+		OnEvent: func(e agentloop.RunEvent) {
+			if e.Type == "llm_call" {
+				calls = append(calls, e)
+			}
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("got %d llm_call events, want one per call (2)", len(calls))
+	}
+	empty := calls[0]
+	if empty.Content != "let me think" || empty.Args["finish_reason"] != "length" ||
+		empty.Args["reasoning_tokens"] != 900 || empty.Args["content_bytes"] != 0 {
+		t.Errorf("empty call reported %q %v", empty.Content, empty.Args)
+	}
+	if empty.Tokens == nil || empty.Tokens.Completion != 900 {
+		t.Errorf("empty call tokens = %+v", empty.Tokens)
+	}
+	if calls[1].Args["finish_reason"] != "stop" {
+		t.Errorf("second call reported %v", calls[1].Args)
+	}
+}
+
 func TestRun_EmptyResponse_ExhaustsRetriesThenErrors(t *testing.T) {
 	sessions := newMemorySessions()
 	sessions.put("s1", agentloop.Session{ID: "s1"})

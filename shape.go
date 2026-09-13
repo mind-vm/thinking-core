@@ -13,7 +13,12 @@ import (
 // history sent to the model. Its return value is in `args` and its
 // output in the result message that follows, so the verbatim source is
 // redundant.
-const staleCodeMarker = "[earlier run() omitted — its result is in the message below; its data is in args]"
+//
+// It is itself a script, because the model reads its own past turns as
+// examples of how to reply: a bare bracketed line got copied back as a
+// reply by models that imitate history. Copied, this one runs as a no-op
+// that keeps args.
+const staleCodeMarker = "```javascript\nfunction run(args) {\n  // earlier turn, body omitted: its logs are in the next message and its return value is in args\n  return args;\n}\n```"
 
 // elideStaleCode returns a copy of history with every assistant message
 // at index >= fromIndex, except the most recent one overall, replaced by

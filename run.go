@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -36,6 +37,11 @@ const maxEmptyRetries = 2
 // treat it as a retryable failure instead of silently finishing with an
 // empty answer.
 var ErrEmptyResponse = errors.New("agentloop: model returned an empty response")
+
+// ErrNoScript is returned when a RequireScript loop's corrections run out
+// and the model still has not written a script. Nothing ran, so the reply
+// is not an answer and must not be reported as a completed run.
+var ErrNoScript = errors.New("agentloop: model replied without a script after every correction")
 
 // RunTimeout is the default wall-clock cap on a single Run call
 // (override via Config.RunTimeout).
@@ -147,14 +153,15 @@ type Config struct {
 
 	// RequireScript sends a reply with neither a code fence nor a DONE
 	// marker back to the model as a correction instead of accepting it
-	// as the answer, up to maxProseRetries times. An agent whose work is
-	// in its workspace otherwise "finishes" by describing what it would
-	// do. Optional; false keeps prose-as-final.
+	// as the answer, up to maxProseRetries times, then fails the run with
+	// ErrNoScript. An agent whose work is in its workspace otherwise
+	// "finishes" by describing what it would do. Optional; false keeps
+	// prose-as-final.
 	RequireScript bool
 }
 
 // maxProseRetries bounds how many times a RequireScript loop corrects a
-// reply that carried no script before accepting it as the answer.
+// reply that carried no script before failing the run.
 const maxProseRetries = 2
 
 // proseCorrection is the user turn a RequireScript loop sends back after
@@ -162,6 +169,30 @@ const maxProseRetries = 2
 const proseCorrection = "Your reply contained no ```javascript block, so nothing ran and nothing was looked at. " +
 	"Do not describe what you would do and do not ask for the files: the workspace is already reachable through the Sandbox API. " +
 	"Reply with one ```javascript block defining run(args), and call answer(result) when you have the result."
+
+// toolCallRe recognises the native tool-call formats models are trained
+// on — Qwen/Hermes XML, and function-call JSON — capturing the name.
+var toolCallRe = regexp.MustCompile(`<function=([A-Za-z_$][\w$.]*)>|<tool_call>\s*\{\s*"name"\s*:\s*"([A-Za-z_$][\w$.]*)"|"(?:name|function)"\s*:\s*"([A-Za-z_$][\w$.]*)"\s*,\s*"(?:arguments|parameters)"`)
+
+// correctionFor is the correction for a reply with no script. A reply that
+// tried to make a native tool call is told so by name, because the model
+// believes it acted: a generic "no script" reads to it as a broken tool.
+func correctionFor(reply string) string {
+	m := toolCallRe.FindStringSubmatch(reply)
+	if m == nil && !strings.Contains(reply, "<tool_call>") {
+		return proseCorrection
+	}
+	name := "the function"
+	for i := 1; i < len(m); i++ {
+		if m[i] != "" {
+			name = "`" + m[i] + "`"
+			break
+		}
+	}
+	return "Your reply was a tool call to " + name + ", and there is no tool-calling channel here, so nothing ran. " +
+		"Sandbox API functions are ordinary JavaScript: call " + name + " inside run(args) in one ```javascript block, " +
+		"return or log() what you need, and call answer(result) when you have the result."
+}
 
 // SandboxBuilder produces the sandbox for one Run. The loop calls it
 // once per Run with the per-run scope so capabilities can resolve
@@ -465,6 +496,19 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 		usage.lastPrompt.Store(int32(resp.InputTokens))
 		usage.lastCompletion.Store(int32(resp.OutputTokens))
 
+		// Every call is reported before its reply is judged, so an empty or
+		// scriptless reply still leaves why it stopped and what it thought.
+		l.emit(req.OnEvent, RunEvent{
+			Type:    "llm_call",
+			Content: resp.Reasoning,
+			Args: map[string]any{
+				"finish_reason":    resp.FinishReason,
+				"reasoning_tokens": resp.ReasoningTokens,
+				"content_bytes":    len(resp.Content),
+			},
+			Tokens: &CallTokens{Prompt: int32(resp.InputTokens), Completion: int32(resp.OutputTokens)},
+		})
+
 		replyText := resp.Content
 
 		// An empty completion (e.g. a reasoning model returning a 0-token
@@ -502,12 +546,21 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 		if jsCode == "" {
 			if l.cfg.RequireScript && proseRetries < maxProseRetries {
 				proseRetries++
-				l.emit(req.OnEvent, RunEvent{Type: "warning", Content: "reply had no script, asking again"})
+				l.emit(req.OnEvent, RunEvent{Type: "warning", Content: "reply had no script, asking again", Args: map[string]any{"reply": replyText}})
 				history = append(history,
 					llm.Message{Role: "assistant", Content: replyText},
-					llm.Message{Role: "user", Content: proseCorrection},
+					llm.Message{Role: "user", Content: correctionFor(replyText)},
 				)
 				return RunResult{}, nil, false
+			}
+			if l.cfg.RequireScript {
+				writeStep(RunStep{
+					StepType: "error",
+					Content:  ErrNoScript.Error(),
+					ToolArgs: json.RawMessage(`{}`),
+				})
+				l.emit(req.OnEvent, RunEvent{Type: "error", Content: ErrNoScript.Error()})
+				return finalize("error"), ErrNoScript, true
 			}
 			// Model answered directly without a fence or a DONE marker.
 			// Treat the whole reply as the final response rather than

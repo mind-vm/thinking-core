@@ -1,6 +1,7 @@
 package agentloop
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/mind-vm/agentloop/llm"
@@ -62,5 +63,18 @@ func TestElideStaleCode_FromIndexAtEnd_NoElision(t *testing.T) {
 		if out[i].Content != history[i].Content {
 			t.Errorf("message %d should be untouched when fromIndex is past the end, got %q", i, out[i].Content)
 		}
+	}
+}
+
+// TestStaleCodeMarkerIsAScript: models copy their past turns, so the
+// marker standing in for one must be a reply the loop runs, and running it
+// must hand args on unchanged.
+func TestStaleCodeMarkerIsAScript(t *testing.T) {
+	code := ExtractJSBlock(staleCodeMarker)
+	if code == "" {
+		t.Fatalf("marker is not a fenced script: %q", staleCodeMarker)
+	}
+	if !strings.Contains(code, "function run(args)") || !strings.Contains(code, "return args;") {
+		t.Errorf("marker script does not pass args through: %q", code)
 	}
 }

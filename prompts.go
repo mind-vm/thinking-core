@@ -38,6 +38,8 @@ End your message after the closing fence. You implement ` + "`run(args)`" + ` �
 
 Inside run() you may call standard JavaScript built-ins plus exactly the functions declared under "## Sandbox API" below. Those declarations are the complete tool surface: if a function is not declared there, it does not exist, and the names must match exactly.
 
+There is NO tool-calling or function-calling channel in this conversation. Do not reply with <tool_call>, <function=...>, or function-call JSON: such a reply runs nothing. Every function under "## Sandbox API" is an ordinary JavaScript function — call it from inside run(), e.g. ` + "`const text = readFile(\"main.go\")`" + `.
+
 2. TO FINISH — call answer(result) (from inside run, or directly): pass a string (markdown) or a JSON value. This ends the run and returns result to the user. Call it once, when you actually have the answer; nothing after it runs, and do not restate the answer anywhere else.
 
 ## What you carry vs. what you see

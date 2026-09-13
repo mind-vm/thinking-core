@@ -168,13 +168,7 @@ func (c *openAIClient) Complete(ctx context.Context, req CompletionRequest) (Com
 		return CompletionResponse{}, err
 	}
 	out := CompletionResponse{Model: model}
-	if len(parsed.Choices) > 0 {
-		out.Content = parsed.Choices[0].Message.Content
-	}
-	if parsed.Usage != nil {
-		out.InputTokens = parsed.Usage.PromptTokens
-		out.OutputTokens = parsed.Usage.CompletionTokens
-	}
+	parsed.fill(&out)
 	return out, nil
 }
 
@@ -232,7 +226,7 @@ func (c *openAIClient) streamChat(ctx context.Context, model string, wire chatRe
 	defer func() { _ = respBody.Close() }()
 
 	out := CompletionResponse{Model: model}
-	var content strings.Builder
+	var content, reasoning strings.Builder
 	sawFrame := false
 	var raw strings.Builder // non-SSE body, kept in case the upstream ignored stream:true
 	scanner := bufio.NewScanner(respBody)
@@ -257,16 +251,20 @@ func (c *openAIClient) streamChat(ctx context.Context, model string, wire chatRe
 			continue // one malformed frame shouldn't kill the stream
 		}
 		if len(chunk.Choices) > 0 {
-			if delta := chunk.Choices[0].Delta.Content; delta != "" {
+			choice := chunk.Choices[0]
+			if delta := choice.Delta.Content; delta != "" {
 				content.WriteString(delta)
 				if onChunk != nil {
 					onChunk(delta)
 				}
 			}
+			reasoning.WriteString(choice.Delta.thinking())
+			if choice.FinishReason != "" {
+				out.FinishReason = choice.FinishReason
+			}
 		}
 		if chunk.Usage != nil {
-			out.InputTokens = chunk.Usage.PromptTokens
-			out.OutputTokens = chunk.Usage.CompletionTokens
+			chunk.Usage.fill(&out)
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -277,19 +275,14 @@ func (c *openAIClient) streamChat(ctx context.Context, model string, wire chatRe
 		if err := json.Unmarshal([]byte(raw.String()), &parsed); err != nil {
 			return CompletionResponse{}, fmt.Errorf("llm: stream: no SSE frames and body not a completion: %w", err)
 		}
-		if len(parsed.Choices) > 0 {
-			out.Content = parsed.Choices[0].Message.Content
-			if onChunk != nil && out.Content != "" {
-				onChunk(out.Content)
-			}
-		}
-		if parsed.Usage != nil {
-			out.InputTokens = parsed.Usage.PromptTokens
-			out.OutputTokens = parsed.Usage.CompletionTokens
+		parsed.fill(&out)
+		if onChunk != nil && out.Content != "" {
+			onChunk(out.Content)
 		}
 		return out, nil
 	}
 	out.Content = content.String()
+	out.Reasoning = reasoning.String()
 	return out, nil
 }
 
@@ -309,11 +302,26 @@ type streamOptions struct {
 
 type chatStreamChunk struct {
 	Choices []struct {
-		Delta struct {
-			Content string `json:"content"`
-		} `json:"delta"`
+		Delta        replyMessage `json:"delta"`
+		FinishReason string       `json:"finish_reason"`
 	} `json:"choices"`
 	Usage *usage `json:"usage"`
+}
+
+// replyMessage is a message or a stream delta. Upstreams disagree on
+// where thinking goes: DeepSeek, vLLM and most open-weight hosts use
+// reasoning_content, OpenRouter uses reasoning.
+type replyMessage struct {
+	Content          string `json:"content"`
+	ReasoningContent string `json:"reasoning_content"`
+	Reasoning        string `json:"reasoning"`
+}
+
+func (m replyMessage) thinking() string {
+	if m.ReasoningContent != "" {
+		return m.ReasoningContent
+	}
+	return m.Reasoning
 }
 
 type chatMessage struct {
@@ -323,16 +331,37 @@ type chatMessage struct {
 
 type chatResponse struct {
 	Choices []struct {
-		Message struct {
-			Content string `json:"content"`
-		} `json:"message"`
+		Message      replyMessage `json:"message"`
+		FinishReason string       `json:"finish_reason"`
 	} `json:"choices"`
 	Usage *usage `json:"usage"`
 }
 
+func (r *chatResponse) fill(out *CompletionResponse) {
+	if len(r.Choices) > 0 {
+		out.Content = r.Choices[0].Message.Content
+		out.Reasoning = r.Choices[0].Message.thinking()
+		out.FinishReason = r.Choices[0].FinishReason
+	}
+	if r.Usage != nil {
+		r.Usage.fill(out)
+	}
+}
+
 type usage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
+	PromptTokens            int `json:"prompt_tokens"`
+	CompletionTokens        int `json:"completion_tokens"`
+	CompletionTokensDetails *struct {
+		ReasoningTokens int `json:"reasoning_tokens"`
+	} `json:"completion_tokens_details"`
+}
+
+func (u *usage) fill(out *CompletionResponse) {
+	out.InputTokens = u.PromptTokens
+	out.OutputTokens = u.CompletionTokens
+	if u.CompletionTokensDetails != nil {
+		out.ReasoningTokens = u.CompletionTokensDetails.ReasoningTokens
+	}
 }
 
 type apiError struct {

@@ -11,6 +11,9 @@ package agentloop
 //	sandbox_event     a primitive emitted observability; Args carries
 //	                  the underlying sandbox.Event fields
 //	data_update       the agent's carried data changed; Args = new value
+//	llm_call          one model call returned; Content = its thinking, when
+//	                  the upstream exposes it; Args = {"finish_reason",
+//	                  "reasoning_tokens", "content_bytes"}; Tokens = its cost
 //	compacted         history was summarized before the run's turns;
 //	                  Args = {"messages_before", "messages_after"}
 //	budget_trimmed    a turn's prompt exceeded Config.ContextBudget and
@@ -20,7 +23,8 @@ package agentloop
 //	response          final markdown answer; Content = the answer
 //	response_chunk    streamed token from a final-text turn;
 //	                  Content = the chunk (no Args)
-//	warning           non-fatal degradation; Content = human-readable detail
+//	warning           non-fatal degradation; Content = human-readable detail;
+//	                  for a scriptless reply, Args = {"reply"}
 //	error             a step errored; Content = human-readable error
 //	done              terminal event; Summary = aggregate RunSummary
 //

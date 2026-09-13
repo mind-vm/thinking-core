@@ -25,6 +25,17 @@ type CompletionResponse struct {
 	Model        string
 	InputTokens  int
 	OutputTokens int
+
+	// Reasoning is the model's thinking, when the upstream returns it
+	// (reasoning_content or reasoning). Empty for models that hide it.
+	Reasoning string
+	// FinishReason is why generation stopped, verbatim from the
+	// upstream ("stop", "length", "content_filter", …). "length" on an
+	// empty Content means thinking spent the output budget.
+	FinishReason string
+	// ReasoningTokens is the part of OutputTokens spent thinking, when
+	// the upstream reports it.
+	ReasoningTokens int
 }
 
 // Client is what the ai()/aiJSON() sandbox capability, and the agent
