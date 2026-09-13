@@ -235,12 +235,13 @@ func (w *workspace) grep(pattern string, opts map[string]any) []map[string]any {
 		limit = w.opts.maxResults()
 	}
 	fileGlob := optString(opts, "glob")
-	if strings.TrimSpace(fileGlob) == "" {
+	explicitGlob := strings.TrimSpace(fileGlob) != ""
+	if !explicitGlob {
 		fileGlob = "**"
 	}
 
 	hits := make([]map[string]any, 0, 16)
-	_, err = w.walk(fileGlob, func(rel string) bool {
+	matched, err := w.walk(fileGlob, func(rel string) bool {
 		if len(hits) >= limit {
 			return false
 		}
@@ -264,6 +265,11 @@ func (w *workspace) grep(pattern string, opts map[string]any) []map[string]any {
 	})
 	if err != nil {
 		w.throw("grep: %v", err)
+	}
+	// An explicit glob that selects no files is almost always a mis-written
+	// one, and an empty result would read as "the pattern is not there".
+	if explicitGlob && len(matched) == 0 {
+		w.throw("grep: opts.glob %q matched no files, so nothing was searched. It is one glob pattern such as \"**/*.go\" or \"report.go\", not a list; call grep once per pattern, or omit glob to search every file", fileGlob)
 	}
 
 	w.sb.Emit(sandbox.Event{Kind: sandbox.EventFileRead, Summary: fmt.Sprintf("grep %s → %d match(es)", pattern, len(hits))})

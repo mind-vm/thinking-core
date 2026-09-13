@@ -144,7 +144,24 @@ type Config struct {
 	// complete, redacted text still arrives via the terminal "response"
 	// event instead.
 	Redactor *redact.Redactor
+
+	// RequireScript sends a reply with neither a code fence nor a DONE
+	// marker back to the model as a correction instead of accepting it
+	// as the answer, up to maxProseRetries times. An agent whose work is
+	// in its workspace otherwise "finishes" by describing what it would
+	// do. Optional; false keeps prose-as-final.
+	RequireScript bool
 }
+
+// maxProseRetries bounds how many times a RequireScript loop corrects a
+// reply that carried no script before accepting it as the answer.
+const maxProseRetries = 2
+
+// proseCorrection is the user turn a RequireScript loop sends back after
+// a reply with no script. It names what was wrong and what to do instead.
+const proseCorrection = "Your reply contained no ```javascript block, so nothing ran and nothing was looked at. " +
+	"Do not describe what you would do and do not ask for the files: the workspace is already reachable through the Sandbox API. " +
+	"Reply with one ```javascript block defining run(args), and call answer(result) when you have the result."
 
 // SandboxBuilder produces the sandbox for one Run. The loop calls it
 // once per Run with the per-run scope so capabilities can resolve
@@ -348,6 +365,7 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 	// fidelity, never serialised into the prompt.
 	prevArgs := json.RawMessage("{}")
 	emptyRetries := 0
+	proseRetries := 0
 
 	// runTurn is one LLM round-trip plus its optional JS execution,
 	// pulled out of the loop below so its turn span (opened first thing,
@@ -482,6 +500,15 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 
 		jsCode := ExtractJSBlock(replyText)
 		if jsCode == "" {
+			if l.cfg.RequireScript && proseRetries < maxProseRetries {
+				proseRetries++
+				l.emit(req.OnEvent, RunEvent{Type: "warning", Content: "reply had no script, asking again"})
+				history = append(history,
+					llm.Message{Role: "assistant", Content: replyText},
+					llm.Message{Role: "user", Content: proseCorrection},
+				)
+				return RunResult{}, nil, false
+			}
 			// Model answered directly without a fence or a DONE marker.
 			// Treat the whole reply as the final response rather than
 			// looping pointlessly.

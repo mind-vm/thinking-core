@@ -221,6 +221,42 @@ func TestRun_NoFenceNoMarker_FreeformAsFinal(t *testing.T) {
 	}
 }
 
+// TestRun_RequireScript_CorrectsProse confirms a RequireScript loop sends
+// a scriptless reply back as a correction, and still accepts prose once
+// the corrections run out.
+func TestRun_RequireScript_CorrectsProse(t *testing.T) {
+	fake := newFakeLLM("fake",
+		llm.CompletionResponse{Content: "Please provide the package."},
+		llm.CompletionResponse{Content: "I would search for it."},
+		llm.CompletionResponse{Content: "Still prose."},
+	)
+	sessions := newMemorySessions()
+	sessions.put("s1", agentloop.Session{ID: "s1"})
+
+	loop := agentloop.New(agentloop.Config{
+		LLM:            fake,
+		Sessions:       sessions,
+		Steps:          newMemorySteps(),
+		SandboxBuilder: emptyBuilder{},
+		RequireScript:  true,
+	})
+
+	result, err := loop.Run(context.Background(), agentloop.RunRequest{SessionID: "s1", Message: "hi"})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got := len(fake.Calls()); got != 3 {
+		t.Fatalf("llm calls: got %d, want 3", got)
+	}
+	second := fake.Calls()[1].Messages
+	if last := second[len(second)-1].Content; !strings.Contains(last, "no ```javascript block") {
+		t.Errorf("second call should end with the correction, got %q", last)
+	}
+	if result.Status != "completed" || result.FinalText != "Still prose." {
+		t.Errorf("result: got %q %q", result.Status, result.FinalText)
+	}
+}
+
 // TestRun_LLMError_SurfacedAsErrorStep confirms an LLM call error
 // becomes an "error" step + RunResult.Status="error".
 func TestRun_LLMError_SurfacedAsErrorStep(t *testing.T) {

@@ -266,6 +266,13 @@ func TestGrep(t *testing.T) {
 	}
 }
 
+func TestGrepRefusesAGlobThatMatchesNothing(t *testing.T) {
+	sb, _ := workspaceAt(t, sampleTree, ext.WorkspaceOptions{}, sandbox.AllowAll)
+	if msg := runErr(t, sb, `return grep("helper", { glob: "src/main.go|src/util.go" });`); !strings.Contains(msg, "matched no files") {
+		t.Errorf("got %q", msg)
+	}
+}
+
 func TestGrepSkipsBinaryFiles(t *testing.T) {
 	sb, _ := workspaceAt(t, map[string]string{
 		"text.txt": "findme here\n",
