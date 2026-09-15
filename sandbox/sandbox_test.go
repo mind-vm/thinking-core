@@ -351,3 +351,20 @@ func TestExecuteReturnsTheLastExpression(t *testing.T) {
 		t.Errorf("Execute = %q, want it to carry 42", got)
 	}
 }
+
+// The reply's data blocks reach the script as a real array of strings.
+func TestBlocksAreInjected(t *testing.T) {
+	s := New()
+	s.SetBlocks([]string{"a `raw` line", "second"})
+	_, ret := turn(t, s, `return { n: blocks.length, first: blocks[0], isArray: Array.isArray(blocks) };`)
+	for _, want := range []string{`"n":2`, `"isArray":true`, "`raw`"} {
+		if !strings.Contains(string(ret), want) {
+			t.Errorf("ret = %s, missing %s", ret, want)
+		}
+	}
+	s.SetBlocks(nil)
+	_, ret = turn(t, s, `return { n: blocks.length };`)
+	if string(ret) != `{"n":0}` {
+		t.Errorf("no blocks: ret = %s, want {\"n\":0}", ret)
+	}
+}

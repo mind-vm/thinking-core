@@ -93,3 +93,22 @@ func TestExtractDoneMarker(t *testing.T) {
 		})
 	}
 }
+
+// TestExtractDataBlocks: every fenced block but the script comes back raw,
+// backticks and all, and a longer fence can hold a shorter one.
+func TestExtractDataBlocks(t *testing.T) {
+	reply := "```javascript\nwriteFile(\"a.go\", blocks[0]);\n```\n\n```go\nvar re = regexp.MustCompile(`^#`)\n```\n\n````markdown\nUse `MaxNodes`:\n```go\nx := 1\n```\n````\n"
+	got := ExtractDataBlocks(reply)
+	want := []string{"var re = regexp.MustCompile(`^#`)", "Use `MaxNodes`:\n```go\nx := 1\n```"}
+	if len(got) != len(want) {
+		t.Fatalf("got %d blocks %q, want %d", len(got), got, len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("block %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+	if blocks := ExtractDataBlocks("```js\nlog(1)\n```"); blocks == nil || len(blocks) != 0 {
+		t.Errorf("script-only reply: got %#v, want an empty non-nil slice", blocks)
+	}
+}

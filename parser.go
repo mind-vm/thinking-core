@@ -22,6 +22,48 @@ func ExtractJSBlock(s string) string {
 	return strings.TrimSpace(m[1])
 }
 
+// fenceOpenRe matches a line that opens a fenced block: three or more
+// backticks and an optional language tag.
+var fenceOpenRe = regexp.MustCompile("^(`{3,})([A-Za-z0-9_+-]*)\\s*$")
+
+// ExtractDataBlocks returns the body of every fenced block in s except the
+// first ```javascript or ```js one, which is the script. They let a reply
+// carry Go source or markdown as raw text beside the script, so file
+// contents and answers need no escaping inside a template literal. A
+// block closes on a line of exactly its own backticks, so a longer fence
+// can hold a shorter one.
+func ExtractDataBlocks(s string) []string {
+	out := []string{}
+	scriptSeen := false
+	lines := strings.Split(s, "\n")
+	for i := 0; i < len(lines); i++ {
+		m := fenceOpenRe.FindStringSubmatch(strings.TrimRight(lines[i], "\r"))
+		if m == nil {
+			continue
+		}
+		var body []string
+		closed := false
+		j := i + 1
+		for ; j < len(lines); j++ {
+			if strings.TrimSpace(lines[j]) == m[1] {
+				closed = true
+				break
+			}
+			body = append(body, lines[j])
+		}
+		if !closed {
+			break
+		}
+		i = j
+		if !scriptSeen && (m[2] == "javascript" || m[2] == "js") {
+			scriptSeen = true
+			continue
+		}
+		out = append(out, strings.Join(body, "\n"))
+	}
+	return out
+}
+
 // doneMarkerRe matches "DONE" on its own line (optionally indented)
 // followed by the final answer on subsequent lines.
 var doneMarkerRe = regexp.MustCompile(`(?m)^\s*DONE\s*\n([\s\S]*)`)

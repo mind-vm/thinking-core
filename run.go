@@ -176,6 +176,12 @@ const proseCorrection = "Your reply contained no ```javascript block, so nothing
 	"Do not describe what you would do and do not ask for the files: the workspace is already reachable through the Sandbox API. " +
 	"Reply with one ```javascript block defining run(args), and call answer(result) when you have the result."
 
+// staleCodeCorrection is sent after a reply that copied the placeholder
+// standing in for an earlier script.
+const staleCodeCorrection = "Your reply repeated the placeholder that stands in for an earlier script, so nothing ran. " +
+	"That script's output is already above and its return value is in args. " +
+	"Write the next script, the one that moves the task forward, and call answer(result) only once the work is actually done."
+
 // toolCallRe recognises the native tool-call formats models are trained
 // on — Qwen/Hermes XML, and function-call JSON — capturing the name.
 var toolCallRe = regexp.MustCompile(`<function=([A-Za-z_$][\w$.]*)>|<tool_call>\s*\{\s*"name"\s*:\s*"([A-Za-z_$][\w$.]*)"|"(?:name|function)"\s*:\s*"([A-Za-z_$][\w$.]*)"\s*,\s*"(?:arguments|parameters)"`)
@@ -549,13 +555,20 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 		}
 
 		jsCode := ExtractJSBlock(replyText)
-		if jsCode == "" {
+		// A copied marker runs as a no-op, so under RequireScript it is
+		// corrected like a reply with no script rather than executed.
+		copiedMarker := l.cfg.RequireScript && isStaleCodeCopy(jsCode)
+		if jsCode == "" || copiedMarker {
 			if l.cfg.RequireScript && proseRetries < maxProseRetries {
 				proseRetries++
-				l.emit(req.OnEvent, RunEvent{Type: "warning", Content: "reply had no script, asking again", Args: map[string]any{"reply": replyText}})
+				warning, correction := "reply had no script, asking again", correctionFor(replyText)
+				if copiedMarker {
+					warning, correction = "reply copied an elided earlier script, asking again", staleCodeCorrection
+				}
+				l.emit(req.OnEvent, RunEvent{Type: "warning", Content: warning, Args: map[string]any{"reply": replyText}})
 				history = append(history,
 					llm.Message{Role: "assistant", Content: replyText},
-					llm.Message{Role: "user", Content: correctionFor(replyText)},
+					llm.Message{Role: "user", Content: correction},
 				)
 				return RunResult{}, nil, false
 			}
@@ -588,6 +601,7 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 		var persistBlob json.RawMessage
 
 		_, jsSpan := l.tracer.Start(tctx, spanExecuteJS)
+		sb.SetBlocks(ExtractDataBlocks(replyText))
 		logs, ret, execErr := sb.ExecuteTurn(jsCode, prevArgs)
 		if execErr != nil {
 			rerr := redactErr(l.cfg.Redactor, execErr)

@@ -44,6 +44,7 @@ type Sandbox struct {
 	answered     bool                  // answer() was called during this Execute
 	answerText   string                // the value passed to answer(), stringified
 	corePrompt   string                // replaces defaultCorePrompt when set
+	blocks       []string              // the reply's data blocks, injected as `blocks` next turn
 	// console state, scoped to the runtime's lifetime (a turn): counters for
 	// console.count, start times for console.time, and the current group nesting
 	// depth for console.group/groupEnd indentation.
@@ -389,6 +390,19 @@ func (s *Sandbox) Execute(code string) (result string, err error) {
 	return output, nil
 }
 
+// SetBlocks sets the raw text blocks the next ExecuteTurn exposes to the
+// script as the global array `blocks`.
+func (s *Sandbox) SetBlocks(blocks []string) {
+	s.blocks = blocks
+}
+
+func nonNilStrings(v []string) []string {
+	if v == nil {
+		return []string{}
+	}
+	return v
+}
+
 // ExecuteTurn runs one turn under the run(args)→return contract used by the
 // return-threading loop. argsJSON (the previous turn's return value) is injected
 // as the global `args`; if the code defines `function run(args) { ... }` it is
@@ -431,6 +445,13 @@ func (s *Sandbox) ExecuteTurn(code string, argsJSON json.RawMessage) (logs strin
 		}
 	} else {
 		_ = s.runtime.Set("args", s.runtime.NewObject())
+	}
+
+	// Inject `blocks`, the reply's other fenced blocks, as a real array.
+	if encoded, mErr := json.Marshal(nonNilStrings(s.blocks)); mErr == nil {
+		if escaped, eErr := json.Marshal(string(encoded)); eErr == nil {
+			_, _ = s.runtime.RunString("blocks = JSON.parse(" + string(escaped) + ");")
+		}
 	}
 
 	// Define the code, then call run(args) if the model declared it. Loose

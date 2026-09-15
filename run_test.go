@@ -290,6 +290,40 @@ func TestRun_RequireScript_NamesTheToolCall(t *testing.T) {
 	}
 }
 
+// TestRun_RequireScript_CorrectsACopiedPlaceholder: a reply that copies
+// the elided-script marker is not run as a no-op turn; the model is told
+// what it copied and asked for the next script.
+func TestRun_RequireScript_CorrectsACopiedPlaceholder(t *testing.T) {
+	copied := "```javascript\nfunction run(args) {\n  // earlier turn, body omitted: its logs are in the next message and its return value is in args\n  return args;\n}\n```"
+	fake := newFakeLLM("fake",
+		llm.CompletionResponse{Content: copied},
+		llm.CompletionResponse{Content: "DONE\nok"},
+	)
+	sessions := newMemorySessions()
+	sessions.put("s1", agentloop.Session{ID: "s1"})
+	loop := agentloop.New(agentloop.Config{
+		LLM: fake, Sessions: sessions, Steps: newMemorySteps(),
+		SandboxBuilder: emptyBuilder{}, RequireScript: true,
+	})
+
+	ran := false
+	_, err := loop.Run(context.Background(), agentloop.RunRequest{SessionID: "s1", Message: "hi", OnEvent: func(e agentloop.RunEvent) {
+		if e.Type == "execute_js" {
+			ran = true
+		}
+	}})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if ran {
+		t.Error("the copied placeholder was executed")
+	}
+	msgs := fake.Calls()[1].Messages
+	if last := msgs[len(msgs)-1].Content; !strings.Contains(last, "repeated the placeholder") {
+		t.Errorf("second call should end with the placeholder correction, got %q", last)
+	}
+}
+
 // TestRun_LLMError_SurfacedAsErrorStep confirms an LLM call error
 // becomes an "error" step + RunResult.Status="error".
 func TestRun_LLMError_SurfacedAsErrorStep(t *testing.T) {

@@ -18,7 +18,16 @@ import (
 // examples of how to reply: a bare bracketed line got copied back as a
 // reply by models that imitate history. Copied, this one runs as a no-op
 // that keeps args.
-const staleCodeMarker = "```javascript\nfunction run(args) {\n  // earlier turn, body omitted: its logs are in the next message and its return value is in args\n  return args;\n}\n```"
+const staleCodeMarker = "```javascript\nfunction run(args) {\n  // " + staleCodeNote + "\n  return args;\n}\n```"
+
+const staleCodeNote = "earlier turn, body omitted: its logs are in the next message and its return value is in args"
+
+// isStaleCodeCopy reports whether a reply's script is the marker copied
+// back. A model that sees several markers in a row continues the pattern,
+// and each copy is a turn that does nothing.
+func isStaleCodeCopy(code string) bool {
+	return strings.Contains(code, staleCodeNote)
+}
 
 // elideStaleCode returns a copy of history with every assistant message
 // at index >= fromIndex, except the most recent one overall, replaced by
