@@ -84,6 +84,15 @@ type DefaultSandboxBuilder struct {
 	// per-turn cost that compounds. Profile.MaxLogBytes derives a value
 	// from a model's window.
 	MaxLogBytes int
+
+	// CorePrompt replaces the sandbox's core declarations (answer, log,
+	// console, …) in the system prompt; the globals stay registered.
+	// Empty keeps the default.
+	CorePrompt string
+
+	// NoDiscovery leaves out skillList/skillGet and help, for an agent
+	// with nothing to discover. Optional; false installs them.
+	NoDiscovery bool
 }
 
 // Build implements SandboxBuilder. A capability whose Build fails is
@@ -117,17 +126,20 @@ func (b *DefaultSandboxBuilder) Build(ctx context.Context, sess Session, scope S
 
 	// skillList()/skillGet() introspect the union of every other pack;
 	// help() reads every pack's HelpEntries, so both go last.
-	skills := make([]sandbox.SkillInfo, 0, len(packs))
-	for _, p := range packs {
-		kind := p.SkillType
-		if kind == "" {
-			kind = "pack"
+	if !b.NoDiscovery {
+		skills := make([]sandbox.SkillInfo, 0, len(packs))
+		for _, p := range packs {
+			kind := p.SkillType
+			if kind == "" {
+				kind = "pack"
+			}
+			skills = append(skills, sandbox.SkillInfo{Name: p.Name, Description: p.Description, Type: kind})
 		}
-		skills = append(skills, sandbox.SkillInfo{Name: p.Name, Description: p.Description, Type: kind})
+		packs = append(packs, sandbox.SkillDiscoveryPack(skills), sandbox.HelpPack())
 	}
-	packs = append(packs, sandbox.SkillDiscoveryPack(skills), sandbox.HelpPack())
 
 	sb := sandbox.New(packs...)
+	sb.SetCorePrompt(b.CorePrompt)
 	sb.SetOnEvent(onEvent)
 	sb.SetMaxLogBytes(b.MaxLogBytes)
 	return sb, func() {}, nil

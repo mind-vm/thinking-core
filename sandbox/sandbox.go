@@ -43,6 +43,7 @@ type Sandbox struct {
 	policy       PolicyChecker         // nil = fail-open; see policy.go
 	answered     bool                  // answer() was called during this Execute
 	answerText   string                // the value passed to answer(), stringified
+	corePrompt   string                // replaces defaultCorePrompt when set
 	// console state, scoped to the runtime's lifetime (a turn): counters for
 	// console.count, start times for console.time, and the current group nesting
 	// depth for console.group/groupEnd indentation.
@@ -227,14 +228,8 @@ func (s *Sandbox) registerCorePrimitives() {
 	s.helpEntries["parseUrl"] = "parseUrl(url) — Parse an absolute URL string. Returns {href, protocol, hostname, port, pathname, search, hash} or null for relative URLs/invalid input."
 }
 
-// SystemPrompt builds the primitives documentation from all registered
-// packs. Appended to the agent loop's base instructions so the LLM
-// knows what's available. Pack prompts use TypeScript .d.ts format
-// wrapped in a single code fence; the "context" pack (dynamic
-// session data) is appended as prose after the fence.
-func (s *Sandbox) SystemPrompt() string {
-	var dts []string
-	dts = append(dts, `// --- Core ---
+// defaultCorePrompt declares the globals every sandbox registers.
+const defaultCorePrompt = `// --- Core ---
 // You implement: function run(args) { ... } — one per turn. Everything below is provided by the sandbox.
 
 /** Deliver the final result and END the run — pass a string (your answer, as markdown) or a JSON value (structured data). Call it once, when you have the answer; nothing after it runs in a new turn. This is how you finish. */
@@ -261,7 +256,26 @@ declare const console: {
   /** Wall-clock timing in ms between time(label) and timeEnd(label). */
   time(label?: string): void; timeEnd(label?: string): void;
   group(label?: string): void; groupCollapsed(label?: string): void; groupEnd(): void;
-};`)
+};`
+
+// SetCorePrompt replaces the core declarations in SystemPrompt, for an
+// agent that documents fewer of the always-registered globals. The
+// globals themselves stay registered. Empty restores the default.
+func (s *Sandbox) SetCorePrompt(prompt string) {
+	s.corePrompt = prompt
+}
+
+// SystemPrompt builds the primitives documentation from all registered
+// packs. Appended to the agent loop's base instructions so the LLM
+// knows what's available. Pack prompts use TypeScript .d.ts format
+// wrapped in a single code fence; the "context" pack (dynamic
+// session data) is appended as prose after the fence.
+func (s *Sandbox) SystemPrompt() string {
+	core := s.corePrompt
+	if core == "" {
+		core = defaultCorePrompt
+	}
+	dts := []string{core}
 
 	var prose []string
 	for _, p := range s.packs {

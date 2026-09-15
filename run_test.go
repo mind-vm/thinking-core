@@ -415,6 +415,39 @@ func TestRun_InjectsContextIntoSystemPromptOnly(t *testing.T) {
 	}
 }
 
+// TestRun_ProtocolReplacesTheDefaultContract: a Config.Protocol heads
+// the system prompt in place of TextEmissionSystemPrompt, and the
+// persona still follows it.
+func TestRun_ProtocolReplacesTheDefaultContract(t *testing.T) {
+	fake := newFakeLLM("fake",
+		llm.CompletionResponse{Content: "DONE\nok", Model: "m", InputTokens: 1, OutputTokens: 1},
+	)
+	sessions := newMemorySessions()
+	sessions.put("s1", agentloop.Session{ID: "s1", SystemPrompt: "BASE-PROMPT"})
+
+	loop := agentloop.New(agentloop.Config{
+		LLM:            fake,
+		Sessions:       sessions,
+		Steps:          newMemorySteps(),
+		SandboxBuilder: emptyBuilder{},
+		Protocol:       "SHORT-PROTOCOL",
+	})
+	if _, err := loop.Run(context.Background(), agentloop.RunRequest{SessionID: "s1", Message: "hi"}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	sys := fake.Calls()[0].Messages[0].Content
+	if !strings.HasPrefix(sys, "SHORT-PROTOCOL") {
+		t.Errorf("system prompt does not open with the protocol: %q", sys)
+	}
+	if strings.Contains(sys, "Thinking Core") {
+		t.Errorf("default contract still present: %q", sys)
+	}
+	if !strings.Contains(sys, "BASE-PROMPT") {
+		t.Errorf("persona dropped: %q", sys)
+	}
+}
+
 // TestRun_DataBytesCarried measures the context economy: a turn
 // returns a large object; the next LLM call receives only the bounded
 // shape digest while the full state stays server-side. The run's

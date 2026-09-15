@@ -80,6 +80,21 @@ func TestScriptWithoutRunExecutesForSideEffects(t *testing.T) {
 	}
 }
 
+// A bare script threads too: the turn runs inside a closure, so a
+// top-level return carries a value and args is in scope without run().
+func TestBareScriptReturnThreads(t *testing.T) {
+	s := New()
+	_, ret := turn(t, s, `const n = 6 * 7;
+return { n };`)
+	_, ret2, err := s.ExecuteTurn(`return { doubled: args.n * 2 };`, ret)
+	if err != nil {
+		t.Fatalf("second turn: %v", err)
+	}
+	if string(ret2) != `{"doubled":84}` {
+		t.Errorf("ret = %s, want {\"doubled\":84}", ret2)
+	}
+}
+
 // --- answer ---------------------------------------------------------
 
 func TestAnswerEndsTheRun(t *testing.T) {

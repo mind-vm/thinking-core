@@ -75,7 +75,16 @@ Sandboxed JavaScript engine (goja) — modern syntax, but NOT a browser and NOT 
 // protocol, sandbox API LAST so declarations sit close to the user
 // message.
 func ComposeSystemPrompt(persona, sandboxAPI string) string {
-	out := TextEmissionSystemPrompt()
+	return composeSystemPrompt("", persona, sandboxAPI)
+}
+
+// composeSystemPrompt is ComposeSystemPrompt with Config.Protocol in place
+// of the default contract when one is set.
+func composeSystemPrompt(protocol, persona, sandboxAPI string) string {
+	out := protocol
+	if out == "" {
+		out = TextEmissionSystemPrompt()
+	}
 	if persona != "" {
 		out += "\n\n## Persona\n\n" + persona
 	}

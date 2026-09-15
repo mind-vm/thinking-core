@@ -115,3 +115,30 @@ func TestDefaultSandboxBuilder_CapabilityBuildErrorIsLogged(t *testing.T) {
 		t.Fatalf("good capability should still be wired: out=%q err=%v", out, err)
 	}
 }
+
+// TestDefaultSandboxBuilder_CorePromptAndNoDiscovery: a CorePrompt
+// replaces the core declarations while the globals stay callable, and
+// NoDiscovery leaves skillList and help out of both prompt and runtime.
+func TestDefaultSandboxBuilder_CorePromptAndNoDiscovery(t *testing.T) {
+	b := &agentloop.DefaultSandboxBuilder{CorePrompt: "declare function answer(r: string): void;", NoDiscovery: true}
+	sb, cleanup, err := b.Build(context.Background(), agentloop.Session{ID: "s1"}, agentloop.Scope{}, nil)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	defer cleanup()
+
+	prompt := sb.SystemPrompt()
+	for _, gone := range []string{"declare const console", "declare function log", "skillList"} {
+		if strings.Contains(prompt, gone) {
+			t.Errorf("prompt still has %q:\n%s", gone, prompt)
+		}
+	}
+	if !strings.Contains(prompt, "declare function answer(r: string)") {
+		t.Errorf("prompt lacks the core override:\n%s", prompt)
+	}
+	for expr, want := range map[string]string{"typeof log": "function", "typeof skillList": "undefined", "typeof help": "undefined"} {
+		if out, err := sb.Execute(expr); err != nil || strings.Trim(out, `"`) != want {
+			t.Errorf("%s = %q (%v), want %s", expr, out, err, want)
+		}
+	}
+}

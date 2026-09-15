@@ -158,6 +158,12 @@ type Config struct {
 	// "finishes" by describing what it would do. Optional; false keeps
 	// prose-as-final.
 	RequireScript bool
+
+	// Protocol replaces TextEmissionSystemPrompt at the head of the
+	// composed system prompt, for an agent that states the reply contract
+	// in its own words. The sandbox API is still appended after it.
+	// Optional; empty keeps the default.
+	Protocol string
 }
 
 // maxProseRetries bounds how many times a RequireScript loop corrects a
@@ -371,7 +377,7 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 	sb.SetPolicy(l.cfg.Policy)
 
 	sandboxAPI := sb.SystemPrompt()
-	sysPrompt := ComposeSystemPrompt(sess.SystemPrompt, sandboxAPI)
+	sysPrompt := composeSystemPrompt(l.cfg.Protocol, sess.SystemPrompt, sandboxAPI)
 	if req.Context != "" {
 		sysPrompt = sysPrompt + "\n\n" + req.Context
 	}
