@@ -28,6 +28,7 @@ func (w *workspace) readFile(name string, opts map[string]any) string {
 	if info.IsDir() {
 		w.throw("readFile: %s is a directory — use listDir", rel)
 	}
+	w.markRead(rel)
 
 	data, err := w.root.ReadFile(rel)
 	if err != nil {
@@ -130,6 +131,7 @@ func (w *workspace) writeFile(name string, content string) bool {
 	if info, err := w.root.Stat(rel); err == nil && info.IsDir() {
 		w.throw("writeFile: %s is a directory", rel)
 	}
+	w.requireRead("writeFile", rel)
 
 	w.authorize("writeFile", rel)
 
@@ -157,6 +159,7 @@ func (w *workspace) editFile(name, find, replace string, opts map[string]any) in
 	if find == "" {
 		w.throw("editFile: the text to find must not be empty")
 	}
+	w.requireRead("editFile", rel)
 
 	data, err := w.root.ReadFile(rel)
 	if err != nil {

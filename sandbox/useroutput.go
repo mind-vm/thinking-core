@@ -69,3 +69,46 @@ func (s *Sandbox) EnableThink() {
 		s.baseKeys["think"] = struct{}{}
 	}
 }
+
+// EnableState adds `state`, one object that survives between scripts
+// while everything else is reset. It is the narrow form of keepGlobals:
+// the model gets somewhere to keep what it learned without the whole
+// runtime becoming a REPL.
+func (s *Sandbox) EnableState() {
+	if s.stateEnabled {
+		return
+	}
+	s.stateEnabled = true
+	_ = s.runtime.Set("state", s.runtime.NewObject())
+	if s.baseKeys != nil {
+		s.baseKeys["state"] = struct{}{}
+	}
+}
+
+// EnablePlan adds plan(...steps), which records the model's intended
+// steps and repeats them at the head of every later script's result.
+// think() writes once into one turn's log; a plan is restated until it
+// is replaced, so the model is reminded of it rather than having to
+// find it in the history.
+func (s *Sandbox) EnablePlan() {
+	if s.planEnabled {
+		return
+	}
+	s.planEnabled = true
+	_ = s.runtime.Set("plan", func(call goja.FunctionCall) goja.Value {
+		s.planSteps = argStrings(call.Arguments)
+		s.Emit(Event{Kind: EventPlan, Summary: "plan", Detail: strings.Join(s.planSteps, "; ")})
+		return goja.Undefined()
+	})
+	if s.baseKeys != nil {
+		s.baseKeys["plan"] = struct{}{}
+	}
+}
+
+// planHeader is the standing plan, prefixed to a turn's result.
+func (s *Sandbox) planHeader() string {
+	if len(s.planSteps) == 0 {
+		return ""
+	}
+	return "PLAN (yours, until you call plan() again):\n- " + strings.Join(s.planSteps, "\n- ") + "\n"
+}

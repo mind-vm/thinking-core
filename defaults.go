@@ -93,6 +93,10 @@ type DefaultSandboxBuilder struct {
 	// NoDiscovery leaves out skillList/skillGet and help, for an agent
 	// with nothing to discover. Optional; false installs them.
 	NoDiscovery bool
+
+	// KeepGlobals leaves each script's globalThis keys in place for the
+	// next script of the same turn. Off by default.
+	KeepGlobals bool
 }
 
 // Build implements SandboxBuilder. A capability whose Build fails is
@@ -140,6 +144,7 @@ func (b *DefaultSandboxBuilder) Build(ctx context.Context, sess Session, scope S
 
 	sb := sandbox.New(packs...)
 	sb.SetCorePrompt(b.CorePrompt)
+	sb.SetKeepGlobals(b.KeepGlobals)
 	sb.SetOnEvent(onEvent)
 	sb.SetMaxLogBytes(b.MaxLogBytes)
 	return sb, func() {}, nil

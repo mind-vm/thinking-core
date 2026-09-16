@@ -195,6 +195,13 @@ type Config struct {
 	// Optional.
 	Think bool
 
+	// State registers `state`, one object that survives between scripts.
+	State bool
+
+	// Plan registers plan(...steps), restated at the head of every later
+	// script's result.
+	Plan bool
+
 	// OpenAPI tells the model, through its corrections, that calling a
 	// function it expects is welcome even when it is not declared: a
 	// ReferenceError names what is missing and points at what exists
@@ -786,6 +793,12 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 		}
 		if l.cfg.Think {
 			sb.EnableThink()
+		}
+		if l.cfg.State {
+			sb.EnableState()
+		}
+		if l.cfg.Plan {
+			sb.EnablePlan()
 		}
 		sb.SetBlocks(ExtractDataBlocks(replyText))
 		scriptsRun++

@@ -61,7 +61,23 @@ type Sandbox struct {
 	// not in this set — see resetGlobals(). Stray state on globalThis
 	// from one Execute should not survive into the next.
 	baseKeys map[string]struct{}
+
+	// keepGlobals leaves a script's own globalThis keys in place between
+	// scripts of one turn, so the runtime reads as a REPL. Off by
+	// default: state that outlives a script is a surprise unless the
+	// prompt promised it.
+	keepGlobals bool
+
+	// stateEnabled and planEnabled register `state` and plan(); planSteps
+	// is the standing plan repeated at the head of every later result.
+	stateEnabled bool
+	planEnabled  bool
+	planSteps    []string
 }
+
+// SetKeepGlobals makes globals defined by one script visible to the
+// next within the same turn.
+func (s *Sandbox) SetKeepGlobals(keep bool) { s.keepGlobals = keep }
 
 // New creates a fresh Sandbox with core primitives and the given Packs.
 //
@@ -133,7 +149,7 @@ func snapshotGlobalKeys(rt *goja.Runtime) map[string]struct{} {
 // pack registration. Called before each Execute so a previous run's
 // `globalThis.foo = ...` doesn't leak into the next one.
 func (s *Sandbox) resetGlobals() {
-	if len(s.baseKeys) == 0 {
+	if s.keepGlobals || len(s.baseKeys) == 0 {
 		return
 	}
 	global := s.runtime.GlobalObject()
@@ -462,18 +478,43 @@ func (s *Sandbox) ExecuteTurn(code string, argsJSON json.RawMessage) (logs strin
 
 	// Define the code, then call run(args) if the model declared it. Loose
 	// scripts (no run) execute for their side effects and return nothing.
-	wrapped := "(function(){\n" + code + "\nif (typeof run === 'function') { return run(args); }\n})()"
-	val, runErr := s.runtime.RunString(wrapped)
+	//
+	// Under keepGlobals the script runs at program scope instead of
+	// inside a closure, so its own declarations persist into the next
+	// script: that is the whole difference between a closure and a REPL.
+	val, runErr := s.runtime.RunString(s.wrap(code))
 	if runErr != nil {
 		s.runtime.ClearInterrupt()
 		s.Emit(Event{Kind: EventError, Summary: "script error", Detail: runErr.Error()})
-		return s.joinedLogs(), nil, runErr
+		return s.planHeader() + s.joinedLogs(), nil, runErr
 	}
 
-	logs = s.joinedLogs()
+	logs = s.planHeader() + s.joinedLogs()
 	ret = exportJSON(val)
 	s.Emit(Event{Kind: EventScriptResult, Summary: "result", Result: logs})
 	return logs, ret, nil
+}
+
+// wrap turns a model's script into the program that is evaluated: a
+// closure whose value is run(args) if one was declared, or — under
+// keepGlobals — the script itself at program scope, with the run(args)
+// call appended so its value is still what the turn returns.
+func (s *Sandbox) wrap(code string) string {
+	call := "\nif (typeof run === 'function') { return run(args); }\n"
+	closure := "(function(){\n" + code + call + "})()"
+	if !s.keepGlobals {
+		return closure
+	}
+	// Program scope is what makes the next script see this one's
+	// declarations. A top-level return is illegal there, and the
+	// protocol documents one, so a script that uses it gets the closure
+	// instead: threading a value back is worth more to that script than
+	// persistence it did not ask for.
+	repl := code + "\n;(function(){" + call + "})()"
+	if _, err := goja.Compile("", repl, false); err != nil {
+		return closure
+	}
+	return repl
 }
 
 // DefaultMaxLogBytes caps one turn's log() output when
