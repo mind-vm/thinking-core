@@ -60,7 +60,10 @@ func elideStaleCode(history []llm.Message, fromIndex int) []llm.Message {
 	out := make([]llm.Message, len(history))
 	copy(out, history)
 	for i, m := range out {
-		if m.Role == "assistant" && i >= fromIndex && i != lastAssistant {
+		// Only a reply that carried a script is stale: a plain-text reply,
+		// such as a plan written before the first script, is the model's
+		// reasoning and has nothing in args or the logs to stand in for it.
+		if m.Role == "assistant" && i >= fromIndex && i != lastAssistant && ExtractJSBlock(m.Content) != "" {
 			out[i] = llm.Message{Role: "assistant", Content: staleCodeMarker}
 		}
 	}

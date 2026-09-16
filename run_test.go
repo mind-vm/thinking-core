@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/dop251/goja"
 	"strings"
 	"sync"
 	"testing"
@@ -284,7 +285,7 @@ func TestRun_RequireScript_NamesTheToolCall(t *testing.T) {
 		msgs := fake.Calls()[1].Messages
 		last := msgs[len(msgs)-1].Content
 		named := strings.Contains(last, "tool call to `readFile`") || (!strings.Contains(reply, "<function=") && !strings.Contains(reply, `"name"`) && strings.Contains(last, "tool call to the function"))
-		if !named || !strings.Contains(last, "inside run(args)") {
+		if !named || !strings.Contains(last, "inside one ```javascript block") || !strings.Contains(last, "answer(result)") {
 			t.Errorf("correction for %q = %q", reply, last)
 		}
 	}
@@ -785,4 +786,227 @@ func equalSlice(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// TestRun_ProseAnswer: once a script has run, a reply without one is the
+// answer; before any script it is still corrected, and a tool call never
+// counts as an answer.
+func TestRun_ProseAnswer(t *testing.T) {
+	newLoop := func(replies ...string) (agentloop.Loop, *fakeLLM) {
+		var resps []llm.CompletionResponse
+		for _, r := range replies {
+			resps = append(resps, llm.CompletionResponse{Content: r})
+		}
+		fake := newFakeLLM("fake", resps...)
+		sessions := newMemorySessions()
+		sessions.put("s1", agentloop.Session{ID: "s1"})
+		return agentloop.New(agentloop.Config{
+			LLM: fake, Sessions: sessions, Steps: newMemorySteps(),
+			SandboxBuilder: emptyBuilder{}, RequireScript: true, ProseAnswer: true,
+		}), fake
+	}
+	script := "```javascript\nconsole.log('looked')\n```"
+
+	loop, _ := newLoop(script, "The answer is **620** — `MaxNodes = 32`.")
+	res, err := loop.Run(context.Background(), agentloop.RunRequest{SessionID: "s1", Message: "hi"})
+	if err != nil || res.Status != "completed" || !strings.Contains(res.FinalText, "`MaxNodes = 32`") {
+		t.Errorf("prose after a script: %v %q %q", err, res.Status, res.FinalText)
+	}
+
+	loop, fake := newLoop("I would look at the files.", script, "Done.")
+	res, err = loop.Run(context.Background(), agentloop.RunRequest{SessionID: "s1", Message: "hi"})
+	if err != nil || res.FinalText != "Done." || len(fake.Calls()) != 3 {
+		t.Errorf("prose before a script should be corrected first: %v %q calls=%d", err, res.FinalText, len(fake.Calls()))
+	}
+
+	loop, fake = newLoop(script, "<tool_call>\n<function=readFile>\n</function>\n</tool_call>", "Done.")
+	res, _ = loop.Run(context.Background(), agentloop.RunRequest{SessionID: "s1", Message: "hi"})
+	if res.FinalText != "Done." || len(fake.Calls()) != 3 {
+		t.Errorf("a tool call was taken as the answer: %q calls=%d", res.FinalText, len(fake.Calls()))
+	}
+}
+
+// TestRun_ErrorsNameTheScriptLineAndRepeats: a failing script's result
+// points at the model's own line, and a second identical failure says so.
+// The script before the cap also carries the budget notice.
+func TestRun_ErrorsNameTheScriptLineAndRepeats(t *testing.T) {
+	broken := "```javascript\nconst a = 1;\nconst b = `x `y` z`;\n```"
+	fake := newFakeLLM("fake",
+		llm.CompletionResponse{Content: broken},
+		llm.CompletionResponse{Content: broken},
+		llm.CompletionResponse{Content: "DONE\nok"},
+	)
+	sessions := newMemorySessions()
+	sessions.put("s1", agentloop.Session{ID: "s1"})
+	loop := agentloop.New(agentloop.Config{
+		LLM: fake, Sessions: sessions, Steps: newMemorySteps(),
+		SandboxBuilder: emptyBuilder{}, MaxIterations: 4, BudgetNotice: true, ProseAnswer: true,
+	})
+	var results []string
+	_, _ = loop.Run(context.Background(), agentloop.RunRequest{SessionID: "s1", Message: "hi", OnEvent: func(e agentloop.RunEvent) {
+		if e.Type == "execute_js_result" {
+			results = append(results, e.Content)
+		}
+	}})
+	if len(results) != 2 {
+		t.Fatalf("got %d results, want 2", len(results))
+	}
+	if !strings.Contains(results[0], "at line 2 of your script") || !strings.Contains(results[0], "blocks[0]") {
+		t.Errorf("first error lacks the script line or hint:\n%s", results[0])
+	}
+	if strings.Contains(results[0], "same error") || !strings.Contains(results[1], "same error as your previous script") {
+		t.Errorf("repeat detection wrong:\n%s\n---\n%s", results[0], results[1])
+	}
+	if strings.Contains(results[0], "NOTICE") || !strings.Contains(results[1], "two replies are left") || !strings.Contains(results[1], "plain markdown") || strings.Contains(results[1], "answer(result)") {
+		t.Errorf("budget notice wrong:\n%s\n---\n%s", results[0], results[1])
+	}
+}
+
+// TestRun_FileBlocksAreWrittenBeforeTheScript: a labelled fence goes
+// through the sandbox's writeFile ahead of the script, a reply of only
+// file blocks is an action rather than prose, and an error in the model's
+// script still names its own line.
+func TestRun_FileBlocksAreWrittenBeforeTheScript(t *testing.T) {
+	fake := newFakeLLM("fake",
+		llm.CompletionResponse{Content: "```go a.go\npackage a // `raw`\n```"},
+		llm.CompletionResponse{Content: "```go b.go\npackage b\n```\n```javascript\nconst x = 1;\nnope();\n```"},
+		llm.CompletionResponse{Content: "Done."},
+	)
+	sessions := newMemorySessions()
+	sessions.put("s1", agentloop.Session{ID: "s1"})
+	written := map[string]string{}
+	builder := writeFileBuilder{written: written}
+	loop := agentloop.New(agentloop.Config{
+		LLM: fake, Sessions: sessions, Steps: newMemorySteps(), SandboxBuilder: builder,
+		RequireScript: true, ProseAnswer: true, FileBlocks: true,
+	})
+	var results []string
+	res, err := loop.Run(context.Background(), agentloop.RunRequest{SessionID: "s1", Message: "hi", OnEvent: func(e agentloop.RunEvent) {
+		if e.Type == "execute_js_result" {
+			results = append(results, e.Content)
+		}
+	}})
+	if err != nil || res.FinalText != "Done." {
+		t.Fatalf("run: %v %q", err, res.FinalText)
+	}
+	if written["a.go"] != "package a // `raw`" || written["b.go"] != "package b" {
+		t.Errorf("written = %q", written)
+	}
+	if len(results) != 2 || !strings.Contains(results[0], "wrote a.go") {
+		t.Fatalf("results = %q", results)
+	}
+	if !strings.Contains(results[1], "at line 2 of your script") {
+		t.Errorf("error does not name the model's line:\n%s", results[1])
+	}
+}
+
+// writeFileBuilder gives the sandbox a writeFile that records its calls.
+type writeFileBuilder struct{ written map[string]string }
+
+func (b writeFileBuilder) Build(_ context.Context, _ agentloop.Session, _ agentloop.Scope, onEvent sandbox.OnEvent) (*sandbox.Sandbox, func(), error) {
+	sb := sandbox.New(sandbox.Pack{Name: "fs", Register: func(rt *goja.Runtime, _ *sandbox.Sandbox) {
+		_ = rt.Set("writeFile", func(path, content string) bool { b.written[path] = content; return true })
+	}})
+	sb.SetOnEvent(onEvent)
+	return sb, func() {}, nil
+}
+
+// TestRun_ProseAnswerRefusesACodeOnlyReply: a reply that is mostly an
+// unlabelled code block is not taken as the answer; the model is told how
+// to label a file or finish in words.
+func TestRun_ProseAnswerRefusesACodeOnlyReply(t *testing.T) {
+	fake := newFakeLLM("fake",
+		llm.CompletionResponse{Content: "```javascript\nconsole.log('looked')\n```"},
+		llm.CompletionResponse{Content: "```go\nratelimit.go\n```\n```go\npackage ratelimit\n\nfunc Allow() error { return nil }\n```"},
+		llm.CompletionResponse{Content: "I added AllowN to memory.go and its tests pass."},
+	)
+	sessions := newMemorySessions()
+	sessions.put("s1", agentloop.Session{ID: "s1"})
+	loop := agentloop.New(agentloop.Config{
+		LLM: fake, Sessions: sessions, Steps: newMemorySteps(), SandboxBuilder: emptyBuilder{},
+		RequireScript: true, ProseAnswer: true, FileBlocks: true,
+	})
+	res, err := loop.Run(context.Background(), agentloop.RunRequest{SessionID: "s1", Message: "hi"})
+	if err != nil || res.FinalText != "I added AllowN to memory.go and its tests pass." {
+		t.Fatalf("run: %v %q", err, res.FinalText)
+	}
+	msgs := fake.Calls()[2].Messages
+	if last := msgs[len(msgs)-1].Content; !strings.Contains(last, "path on the fence line itself") {
+		t.Errorf("third call should carry the code-only correction, got %q", last)
+	}
+}
+
+// TestRun_UserOutput: print writes for the user and not the model's log,
+// return still threads, done() ends with everything printed plus its
+// message, and an empty done() is refused with a notice.
+func TestRun_UserOutput(t *testing.T) {
+	fake := newFakeLLM("fake",
+		llm.CompletionResponse{Content: "```javascript\ndone();\n```"},
+		llm.CompletionResponse{Content: "```javascript\nprint('Renamed Title to Name.');\nconsole.log('seen by the model');\nreturn { n: 2 };\n```"},
+		llm.CompletionResponse{Content: "```javascript\nprint(`Files: ${args.n}`);\nexit('Tests pass.');\n```"},
+	)
+	sessions := newMemorySessions()
+	sessions.put("s1", agentloop.Session{ID: "s1"})
+	loop := agentloop.New(agentloop.Config{
+		LLM: fake, Sessions: sessions, Steps: newMemorySteps(), SandboxBuilder: emptyBuilder{},
+		RequireScript: true, UserOutput: true,
+	})
+	var results []string
+	res, err := loop.Run(context.Background(), agentloop.RunRequest{SessionID: "s1", Message: "hi", OnEvent: func(e agentloop.RunEvent) {
+		if e.Type == "execute_js_result" {
+			results = append(results, e.Content)
+		}
+	}})
+	if err != nil || res.Status != "completed" {
+		t.Fatalf("run: %v %q", err, res.Status)
+	}
+	if res.FinalText != "Renamed Title to Name.\nFiles: 2\nTests pass." {
+		t.Errorf("final = %q", res.FinalText)
+	}
+	if len(results) != 3 || !strings.Contains(results[0], "exit() was called with nothing printed") {
+		t.Fatalf("an empty done() was not refused: %q", results)
+	}
+	if strings.Contains(results[1], "Renamed") || !strings.Contains(results[1], "seen by the model") {
+		t.Errorf("print leaked into the model's log, or log is missing: %q", results[1])
+	}
+}
+
+// TestRun_ClarifyAndOpenAPI: the first plain-text reply is recorded as the
+// model's understanding and answered with "proceed", and a guessed
+// function is named without calling the declarations complete.
+func TestRun_ClarifyAndOpenAPI(t *testing.T) {
+	fake := newFakeLLM("fake",
+		llm.CompletionResponse{Content: "1) Rename Title. 2) go build passes. 3) Unclear whether tests exist."},
+		llm.CompletionResponse{Content: "```javascript\nconst r = readJSON('a.json');\n```"},
+		llm.CompletionResponse{Content: "```javascript\nprint('done'); done();\n```"},
+	)
+	sessions := newMemorySessions()
+	sessions.put("s1", agentloop.Session{ID: "s1"})
+	loop := agentloop.New(agentloop.Config{
+		LLM: fake, Sessions: sessions, Steps: newMemorySteps(), SandboxBuilder: emptyBuilder{},
+		RequireScript: true, UserOutput: true, Clarify: true, OpenAPI: true,
+	})
+	var understanding string
+	var results []string
+	res, err := loop.Run(context.Background(), agentloop.RunRequest{SessionID: "s1", Message: "rename it", OnEvent: func(e agentloop.RunEvent) {
+		switch e.Type {
+		case "understanding":
+			understanding = e.Content
+		case "execute_js_result":
+			results = append(results, e.Content)
+		}
+	}})
+	if err != nil || res.FinalText != "done" {
+		t.Fatalf("run: %v %q", err, res.FinalText)
+	}
+	if !strings.Contains(understanding, "Unclear whether tests exist") {
+		t.Errorf("understanding = %q", understanding)
+	}
+	first := fake.Calls()[0].Messages
+	if last := first[len(first)-1].Content; !strings.Contains(last, "anything unclear") {
+		t.Errorf("first call does not ask for the understanding: %q", last)
+	}
+	if len(results) == 0 || !strings.Contains(results[0], "`readJSON` is not available") || strings.Contains(results[0], "complete list") {
+		t.Errorf("open API hint wrong: %q", results)
+	}
 }

@@ -78,3 +78,23 @@ func TestStaleCodeMarkerIsAScript(t *testing.T) {
 		t.Errorf("marker script does not pass args through: %q", code)
 	}
 }
+
+// TestElideStaleCode_KeepsPlainTextReplies: a plan written before the
+// first script is not code, so it survives elision verbatim.
+func TestElideStaleCode_KeepsPlainTextReplies(t *testing.T) {
+	history := []llm.Message{
+		{Role: "user", Content: "task"},
+		{Role: "assistant", Content: "1) Rename Title. 2) Build. 3) Nothing unclear."},
+		{Role: "user", Content: "Proceed."},
+		{Role: "assistant", Content: "```javascript\ncode-A\n```"},
+		{Role: "user", Content: "Execution result:\nok"},
+		{Role: "assistant", Content: "```javascript\ncode-B\n```"},
+	}
+	out := elideStaleCode(history, 1)
+	if out[1].Content != history[1].Content {
+		t.Errorf("the plan was elided: %q", out[1].Content)
+	}
+	if out[3].Content != staleCodeMarker {
+		t.Errorf("the stale script was kept: %q", out[3].Content)
+	}
+}

@@ -70,7 +70,7 @@ func TestRetryHintForError(t *testing.T) {
 		{
 			name:       "ReferenceError",
 			in:         "ReferenceError: fooBar is not defined",
-			wantSubstr: "help(",
+			wantSubstr: "Sandbox API",
 		},
 		{
 			name:       "TypeError of undefined",
@@ -94,6 +94,58 @@ func TestRetryHintForError(t *testing.T) {
 			}
 			if !strings.Contains(got, tc.wantSubstr) {
 				t.Errorf("retryHintForError(%q) = %q, want it to contain %q", tc.in, got, tc.wantSubstr)
+			}
+		})
+	}
+}
+
+// TestDescribeScriptError: the location is the model's own line, not the
+// wrapper's, and the two common literal failures carry their hint.
+func TestDescribeScriptError(t *testing.T) {
+	tests := []struct {
+		name, raw, code            string
+		wantMsg, wantLoc, wantHint string
+	}{
+		{
+			name:     "backtick closes a template literal",
+			raw:      "SyntaxError: SyntaxError: (anonymous): Line 3:15 Unexpected identifier",
+			code:     "const a = 1;\nconst b = `x `y` z`;\nlog(b)",
+			wantMsg:  "Line 2:15",
+			wantLoc:  "at line 2 of your script:\n  const b = `x `y` z`;\n                ^",
+			wantHint: "blocks[0]",
+		},
+		{
+			name:     "unterminated literal",
+			raw:      "SyntaxError: SyntaxError: (anonymous): Line 5:5 Unexpected end of input (and 3 more errors)",
+			code:     "const a = `unterminated\nlog(a)",
+			wantLoc:  "at the end of your script",
+			wantHint: "still open",
+		},
+		{
+			name:    "runtime error",
+			raw:     "TypeError: Cannot read property 'x' of undefined at <eval>:4:7(7)",
+			code:    "const a = 1;\nconst o = undefined;\nlog(o.x)",
+			wantMsg: "TypeError: Cannot read property 'x' of undefined",
+			wantLoc: "at line 3 of your script:\n  log(o.x)",
+		},
+		{
+			name:    "no location",
+			raw:     "fetch: dial tcp: i/o timeout",
+			code:    "fetch('x')",
+			wantMsg: "fetch: dial tcp: i/o timeout",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			msg, loc, hint := describeScriptError(tc.raw, tc.code, 0)
+			if !strings.Contains(msg, tc.wantMsg) {
+				t.Errorf("message = %q, want %q in it", msg, tc.wantMsg)
+			}
+			if tc.wantLoc == "" && loc != "" || !strings.Contains(loc, tc.wantLoc) {
+				t.Errorf("location = %q, want %q", loc, tc.wantLoc)
+			}
+			if tc.wantHint == "" && hint != "" || !strings.Contains(hint, tc.wantHint) {
+				t.Errorf("hint = %q, want %q in it", hint, tc.wantHint)
 			}
 		})
 	}

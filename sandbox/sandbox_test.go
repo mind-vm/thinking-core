@@ -368,3 +368,38 @@ func TestBlocksAreInjected(t *testing.T) {
 		t.Errorf("no blocks: ret = %s, want {\"n\":0}", ret)
 	}
 }
+
+// A logged object whose strings span lines reads as text, not as one line
+// of escapes; a one-line object keeps compact JSON, and a Go-returned map
+// (what exec gives back) is rendered the same way.
+func TestLoggedMultilineObjectsAreReadable(t *testing.T) {
+	s := New(Pack{Name: "run", Register: func(rt *goja.Runtime, _ *Sandbox) {
+		_ = rt.Set("fakeExec", func() map[string]any {
+			return map[string]any{"code": 0, "stdout": "=== RUN   TestA\n--- PASS: TestA\n", "stderr": ""}
+		})
+	}})
+	logs, _ := turn(t, s, `console.log("result:", fakeExec()); console.log({a: 1, b: "x"}); console.error({msg: "say \"hi\"\nthen go"});`)
+	for _, want := range []string{
+		"result: {\n  \"code\": 0\n",
+		"\"stdout\": |\n    === RUN   TestA\n    --- PASS: TestA\n",
+		`{"a":1,"b":"x"}`,
+		"[error] {\n  \"msg\": |\n    say \"hi\"\n    then go\n}",
+	} {
+		if !strings.Contains(logs, want) {
+			t.Errorf("logs lack %q:\n%s", want, logs)
+		}
+	}
+}
+
+// think() writes into the log the model reads, tagged as a thought.
+func TestThinkWritesToTheLog(t *testing.T) {
+	s := New()
+	s.EnableThink()
+	logs, _ := turn(t, s, `think("plan: read memory.go, then add AllowN");`)
+	if !strings.Contains(logs, "[think] plan: read memory.go, then add AllowN") {
+		t.Errorf("logs = %q", logs)
+	}
+	if _, _, err := s.ExecuteTurn(`think("still here");`, nil); err != nil {
+		t.Errorf("think() did not survive the global reset: %v", err)
+	}
+}

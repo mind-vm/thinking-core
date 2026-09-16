@@ -45,6 +45,11 @@ type Sandbox struct {
 	answerText   string                // the value passed to answer(), stringified
 	corePrompt   string                // replaces defaultCorePrompt when set
 	blocks       []string              // the reply's data blocks, injected as `blocks` next turn
+	userOutput   bool                  // print/done/exit are the user channel; see EnableUserOutput
+	thinkEnabled bool                  // think() is registered; see EnableThink
+	printed      []string              // print() output for the user, across scripts
+	doneCalled   bool                  // done() or exit() was called during this ExecuteTurn
+	doneMessage  string                // the message passed to done() or exit()
 	// console state, scoped to the runtime's lifetime (a turn): counters for
 	// console.count, start times for console.time, and the current group nesting
 	// depth for console.group/groupEnd indentation.
@@ -416,6 +421,7 @@ func nonNilStrings(v []string) []string {
 func (s *Sandbox) ExecuteTurn(code string, argsJSON json.RawMessage) (logs string, ret json.RawMessage, err error) {
 	s.logs = nil
 	s.answered = false
+	s.doneCalled, s.doneMessage = false, ""
 	s.answerText = ""
 	s.resetGlobals()
 	s.Emit(Event{Kind: EventScript, Summary: "execute", Detail: code})

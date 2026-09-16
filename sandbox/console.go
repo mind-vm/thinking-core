@@ -21,7 +21,9 @@ func argStrings(args []goja.Value) []string {
 		case string:
 			out = append(out, v)
 		default:
-			if b, err := json.Marshal(v); err == nil {
+			if hasMultilineString(v) {
+				out = append(out, formatReadable(v, ""))
+			} else if b, err := json.Marshal(v); err == nil {
 				out = append(out, string(b))
 			} else {
 				out = append(out, fmt.Sprintf("%v", v))
@@ -29,6 +31,78 @@ func argStrings(args []goja.Value) []string {
 		}
 	}
 	return out
+}
+
+// hasMultilineString reports whether a logged value holds a string with a
+// newline anywhere inside it.
+func hasMultilineString(v any) bool {
+	switch x := v.(type) {
+	case string:
+		return strings.Contains(x, "\n")
+	case map[string]any:
+		for _, e := range x {
+			if hasMultilineString(e) {
+				return true
+			}
+		}
+	case []any:
+		for _, e := range x {
+			if hasMultilineString(e) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// formatReadable renders a logged object whose strings span lines so the
+// model reads them as text. One-line JSON would turn command output or a
+// file into a single line of \n and \" escapes, which the model then
+// misreads or copies back. Multi-line strings print as indented "|" blocks;
+// every other value stays JSON. It is display only: what a script returns
+// is untouched.
+func formatReadable(v any, indent string) string {
+	inner := indent + "  "
+	switch x := v.(type) {
+	case string:
+		if !strings.Contains(x, "\n") {
+			b, _ := json.Marshal(x)
+			return string(b)
+		}
+		lines := strings.Split(strings.TrimRight(x, "\n"), "\n")
+		return "|\n" + inner + strings.Join(lines, "\n"+inner)
+	case map[string]any:
+		if len(x) == 0 {
+			return "{}"
+		}
+		keys := make([]string, 0, len(x))
+		for k := range x {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		var b strings.Builder
+		b.WriteString("{\n")
+		for _, k := range keys {
+			key, _ := json.Marshal(k)
+			b.WriteString(inner + string(key) + ": " + formatReadable(x[k], inner) + "\n")
+		}
+		return b.String() + indent + "}"
+	case []any:
+		if len(x) == 0 {
+			return "[]"
+		}
+		var b strings.Builder
+		b.WriteString("[\n")
+		for _, e := range x {
+			b.WriteString(inner + formatReadable(e, inner) + "\n")
+		}
+		return b.String() + indent + "]"
+	default:
+		if b, err := json.Marshal(x); err == nil {
+			return string(b)
+		}
+		return fmt.Sprintf("%v", x)
+	}
 }
 
 // emitConsole writes one console line to the log buffer (visible next turn),

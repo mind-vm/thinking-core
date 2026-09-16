@@ -112,3 +112,27 @@ func TestExtractDataBlocks(t *testing.T) {
 		t.Errorf("script-only reply: got %#v, want an empty non-nil slice", blocks)
 	}
 }
+
+// TestExtractFileBlocks: a fence labelled with a path is a file in any of
+// the forms models use; an unlabelled or non-path label is not.
+func TestExtractFileBlocks(t *testing.T) {
+	reply := "```javascript\nconsole.log(exec([\"go\",\"test\"]).stdout)\n```\n" +
+		"```go memory_test.go\npackage x\n```\n" +
+		"```markdown answer\nnot a file\n```\n" +
+		"```go:internal/a.go\npackage a\n```\n" +
+		"```go title=\"b.go\"\npackage b\n```\n" +
+		"```go\npackage unlabelled\n```\n"
+	got := ExtractFileBlocks(reply)
+	want := []FileBlock{{"memory_test.go", 0}, {"internal/a.go", 2}, {"b.go", 3}}
+	if len(got) != len(want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("file %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+	if blocks := ExtractDataBlocks(reply); len(blocks) != 5 || blocks[0] != "package x" {
+		t.Errorf("data blocks = %q", blocks)
+	}
+}

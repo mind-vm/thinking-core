@@ -24,17 +24,19 @@ func ExtractJSBlock(s string) string {
 
 // fenceOpenRe matches a line that opens a fenced block: three or more
 // backticks and an optional language tag.
-var fenceOpenRe = regexp.MustCompile("^(`{3,})([A-Za-z0-9_+-]*)\\s*$")
+var fenceOpenRe = regexp.MustCompile("^(`{3,})([A-Za-z0-9_+-]*)(.*)$")
 
-// ExtractDataBlocks returns the body of every fenced block in s except the
-// first ```javascript or ```js one, which is the script. They let a reply
-// carry Go source or markdown as raw text beside the script, so file
-// contents and answers need no escaping inside a template literal. A
-// block closes on a line of exactly its own backticks, so a longer fence
-// can hold a shorter one.
-func ExtractDataBlocks(s string) []string {
-	out := []string{}
-	scriptSeen := false
+// fencedBlock is one fenced block of a reply: its language, the rest of
+// its opening line, and its body.
+type fencedBlock struct {
+	lang, info, body string
+}
+
+// fencedBlocks scans s for fenced blocks. A block closes on a line of
+// exactly its own backticks, so a longer fence can hold a shorter one; an
+// unclosed block ends the scan.
+func fencedBlocks(s string) []fencedBlock {
+	var out []fencedBlock
 	lines := strings.Split(s, "\n")
 	for i := 0; i < len(lines); i++ {
 		m := fenceOpenRe.FindStringSubmatch(strings.TrimRight(lines[i], "\r"))
@@ -55,11 +57,67 @@ func ExtractDataBlocks(s string) []string {
 			break
 		}
 		i = j
-		if !scriptSeen && (m[2] == "javascript" || m[2] == "js") {
+		out = append(out, fencedBlock{lang: m[2], info: strings.TrimSpace(m[3]), body: strings.Join(body, "\n")})
+	}
+	return out
+}
+
+// dataBlocks is every fenced block but the first javascript one, which
+// is the script.
+func dataBlocks(s string) []fencedBlock {
+	out := []fencedBlock{}
+	scriptSeen := false
+	for _, b := range fencedBlocks(s) {
+		if !scriptSeen && b.info == "" && (b.lang == "javascript" || b.lang == "js") {
 			scriptSeen = true
 			continue
 		}
-		out = append(out, strings.Join(body, "\n"))
+		out = append(out, b)
+	}
+	return out
+}
+
+// ExtractDataBlocks returns the body of every fenced block in s except the
+// first ```javascript or ```js one, which is the script. They let a reply
+// carry Go source or markdown as raw text beside the script, so file
+// contents and answers need no escaping inside a template literal.
+func ExtractDataBlocks(s string) []string {
+	blocks := dataBlocks(s)
+	out := make([]string, 0, len(blocks))
+	for _, b := range blocks {
+		out = append(out, b.body)
+	}
+	return out
+}
+
+// FileBlock is a fenced block labelled with a file path, and its index in
+// ExtractDataBlocks.
+type FileBlock struct {
+	Path  string
+	Index int
+}
+
+var pathAttrRe = regexp.MustCompile(`^(?:path|file|filename|title)=["']?([^"'\s]+)["']?$`)
+
+// ExtractFileBlocks returns the data blocks labelled with a path, the way
+// a model shows a file in chat: a fence opened as "go memory_test.go",
+// "go:memory_test.go" or "go title=memory_test.go". A bare label counts
+// only when it looks like a path, with a dot or a slash, so a fence opened
+// as "markdown answer" is not a file.
+func ExtractFileBlocks(s string) []FileBlock {
+	var out []FileBlock
+	for i, b := range dataBlocks(s) {
+		info := strings.TrimPrefix(b.info, ":")
+		for _, field := range strings.Fields(info) {
+			path := field
+			if m := pathAttrRe.FindStringSubmatch(field); m != nil {
+				path = m[1]
+			} else if strings.Contains(field, "=") || !strings.ContainsAny(field, "./") {
+				continue
+			}
+			out = append(out, FileBlock{Path: path, Index: i})
+			break
+		}
 	}
 	return out
 }
