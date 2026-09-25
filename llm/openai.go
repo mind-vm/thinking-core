@@ -26,7 +26,11 @@ const (
 
 // Config configures the OpenAI-compatible client.
 type Config struct {
-	APIKey          string
+	APIKey string
+	// TokenSource, when set, supplies the bearer token per request in
+	// place of APIKey, for providers whose credentials expire (Vertex AI
+	// via GoogleWIF).
+	TokenSource     TokenSource
 	ChatModel       string
 	BaseURL         string
 	ReasoningEffort string
@@ -99,6 +103,7 @@ func envOr(name, def string) string {
 // POST {baseURL}/chat/completions endpoint.
 type openAIClient struct {
 	apiKey          string
+	tokenSource     TokenSource
 	baseURL         string
 	chatModel       string
 	reasoningEffort string
@@ -108,11 +113,11 @@ type openAIClient struct {
 	retryBaseDelay  time.Duration
 }
 
-// NewOpenAI builds a Client from cfg. Returns an error if APIKey is
-// empty — the caller decides what a missing key means for the run it's
+// NewOpenAI builds a Client from cfg. Returns an error if both APIKey
+// and TokenSource are empty — the caller decides what a missing key means for the run it's
 // building (e.g. skip registering the "ai" capability).
 func NewOpenAI(cfg Config) (Client, error) {
-	if cfg.APIKey == "" {
+	if cfg.APIKey == "" && cfg.TokenSource == nil {
 		return nil, errors.New("llm: OPENAI_API_KEY is not set")
 	}
 	hc := cfg.HTTPClient
@@ -132,6 +137,7 @@ func NewOpenAI(cfg Config) (Client, error) {
 	}
 	return &openAIClient{
 		apiKey:          cfg.APIKey,
+		tokenSource:     cfg.TokenSource,
 		baseURL:         strings.TrimRight(orDefault(cfg.BaseURL, defaultBaseURL), "/"),
 		chatModel:       orDefault(cfg.ChatModel, defaultChatModel),
 		reasoningEffort: cfg.ReasoningEffort,
@@ -429,8 +435,16 @@ func (c *openAIClient) doJSONPost(ctx context.Context, path string, body []byte)
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "application/json")
-		if c.apiKey != "" {
-			req.Header.Set("Authorization", "Bearer "+c.apiKey)
+		bearer := c.apiKey
+		if c.tokenSource != nil {
+			// A token that cannot be fetched fails the call: retrying the
+			// completion would only ask the same token source again.
+			if bearer, err = c.tokenSource.Token(ctx); err != nil {
+				return nil, fmt.Errorf("llm: token: %w", err)
+			}
+		}
+		if bearer != "" {
+			req.Header.Set("Authorization", "Bearer "+bearer)
 		}
 		for k, v := range c.headers {
 			req.Header.Set(k, v)
