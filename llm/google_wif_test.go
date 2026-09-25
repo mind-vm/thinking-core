@@ -6,8 +6,10 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -113,6 +115,18 @@ func TestRSAThumbprintMatchesRFC7638(t *testing.T) {
 	pub := &rsa.PublicKey{N: new(big.Int).SetBytes(n), E: 65537}
 	if got := rsaThumbprint(pub); got != "NzbLsXh8uDCcd-6MNwXF4W_7noWXFZAfHkxZsRGC9Xs" {
 		t.Fatalf("thumbprint = %s", got)
+	}
+}
+
+func TestParseRSAPrivateKeyAcceptsEscapedNewlines(t *testing.T) {
+	key, _ := rsa.GenerateKey(rand.Reader, 2048)
+	der, _ := x509.MarshalPKCS8PrivateKey(key)
+	pemText := string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}))
+	for name, in := range map[string]string{"multiline": pemText, "one line": strings.ReplaceAll(pemText, "\n", `\n`)} {
+		got, err := ParseRSAPrivateKey([]byte(in))
+		if err != nil || !got.Equal(key) {
+			t.Fatalf("%s: key = %v, err = %v", name, got != nil, err)
+		}
 	}
 }
 

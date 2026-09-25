@@ -110,7 +110,10 @@ func GoogleWIFFromEnv() (*GoogleWIF, error) {
 }
 
 // ParseRSAPrivateKey decodes a PEM RSA private key in PKCS#8 or PKCS#1 form.
+// Literal "\n" sequences count as newlines, because a PEM passed through a
+// .env file or a deploy tool's variable often arrives on one line.
 func ParseRSAPrivateKey(pemBytes []byte) (*rsa.PrivateKey, error) {
+	pemBytes = []byte(strings.ReplaceAll(string(pemBytes), `\n`, "\n"))
 	block, _ := pem.Decode(pemBytes)
 	if block == nil {
 		return nil, errors.New("no PEM block")
