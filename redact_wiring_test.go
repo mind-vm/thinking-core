@@ -205,3 +205,42 @@ func TestRun_RedactsSpanErrorMessages(t *testing.T) {
 		}
 	}
 }
+
+// TestRun_RedactsTheExecutionResultTheModelReads: a script that logs a
+// secret — say, a fetch() response that echoed a credential back — must not
+// hand it to the model on the next turn, only the placeholder.
+func TestRun_RedactsTheExecutionResultTheModelReads(t *testing.T) {
+	fake := newFakeLLM("fake",
+		// Assembled at run time, so the script's own text does not carry it.
+		llm.CompletionResponse{Content: "```javascript\nlog('the api said ' + 'sk-live-' + 'super-secret');\n```"},
+		llm.CompletionResponse{Content: "DONE\nok"},
+	)
+	sessions := newMemorySessions()
+	sessions.put("s1", agentloop.Session{ID: "s1"})
+
+	loop := agentloop.New(agentloop.Config{
+		LLM:            fake,
+		Sessions:       sessions,
+		Steps:          newMemorySteps(),
+		SandboxBuilder: emptyBuilder{},
+		Redactor:       redact.FromSecrets(map[string]string{"jwt": wiringSecret}),
+	})
+	if _, err := loop.Run(context.Background(), agentloop.RunRequest{SessionID: "s1", Message: "hi"}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	calls := fake.Calls()
+	if len(calls) < 2 {
+		t.Fatalf("expected a second model call after the script ran, got %d", len(calls))
+	}
+	var seen strings.Builder
+	for _, m := range calls[1].Messages {
+		seen.WriteString(m.Content)
+	}
+	if strings.Contains(seen.String(), wiringSecret) {
+		t.Fatalf("the model read the secret in the execution result")
+	}
+	if !strings.Contains(seen.String(), "[redacted:secret.jwt]") {
+		t.Fatalf("expected the placeholder where the secret was: %q", seen.String())
+	}
+}
