@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -269,5 +270,48 @@ func TestValidateModuleCode(t *testing.T) {
 	// error found at run time would fail a turn instead of the edit.
 	if err := ValidateModuleCode("bad", `function ( {{{`); err == nil {
 		t.Error("a syntax error should be reported before registration")
+	}
+}
+
+// --- host egress headers ---------------------------------------------
+
+func TestEgressHeadersReachTheWireAndOverrideTheScript(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(echoHandler))
+	t.Cleanup(srv.Close)
+	ctx := WithEgressHeaders(context.Background(), func(u *url.URL) map[string]string {
+		if SameOrigin(u, srv.URL) {
+			return map[string]string{"Authorization": "Bearer host-token"}
+		}
+		return nil
+	})
+	s := New(FetchPack(ctx, nil))
+	s.SetPolicy(AllowAll)
+
+	_, ret := turn(t, s, `function run(args) {
+		return fetch(`+quote(srv.URL)+`, { headers: { Authorization: "Bearer from-script" } }).body;
+	}`)
+	if !strings.Contains(string(ret), "auth=Bearer host-token") {
+		t.Errorf("the host's header did not win: %s", ret)
+	}
+}
+
+func TestSameOriginIsExact(t *testing.T) {
+	for _, c := range []struct {
+		url, origin string
+		want        bool
+	}{
+		{"https://api.example.com/boards/1", "https://api.example.com", true},
+		{"https://api.example.com:443/x", "https://api.example.com", true},
+		{"http://localhost:50011/boards", "http://localhost:50011", true},
+		{"http://localhost:50012/boards", "http://localhost:50011", false},
+		{"http://api.example.com/x", "https://api.example.com", false},
+		{"https://api.example.com.attacker.net/x", "https://api.example.com", false},
+		{"https://evil.com/?https://api.example.com", "https://api.example.com", false},
+		{"https://api.example.com/x", "", false},
+	} {
+		u, _ := url.Parse(c.url)
+		if got := SameOrigin(u, c.origin); got != c.want {
+			t.Errorf("SameOrigin(%q, %q) = %v, want %v", c.url, c.origin, got, c.want)
+		}
 	}
 }

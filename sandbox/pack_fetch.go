@@ -461,6 +461,10 @@ func doFetchRequest(ctx context.Context, rawURL, method, body string, headers ma
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
+	// The host's headers last, so a script cannot pre-empt them (egress.go).
+	for k, v := range egressHeadersFor(ctx, rawURL) {
+		req.Header.Set(k, v)
+	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
