@@ -321,6 +321,7 @@ declare module 'http' {
   function get(url: string, opts?: HttpOpts): HttpResponse;
   function post(url: string, body?: string, opts?: HttpOpts): HttpResponse;
   function put(url: string, body?: string, opts?: HttpOpts): HttpResponse;
+  function patch(url: string, body?: string, opts?: HttpOpts): HttpResponse;
   function del(url: string, opts?: HttpOpts): HttpResponse;
 }`,
 		HelpEntries: map[string]string{
@@ -329,6 +330,7 @@ declare module 'http' {
   h.get(url, opts?) — GET request
   h.post(url, body?, opts?) — POST request
   h.put(url, body?, opts?) — PUT request
+  h.patch(url, body?, opts?) — PATCH request
   h.del(url, opts?) — DELETE request
   opts.headers sends request headers, e.g. {headers:{Authorization:'Bearer '+token}}.
   All methods return {status, body, headers}.`,
@@ -358,6 +360,10 @@ exports.post = function(url, body, opts) {
 
 exports.put = function(url, body, opts) {
   return _http(url, {method: "PUT", body: body || "", headers: _headers(opts)});
+};
+
+exports.patch = function(url, body, opts) {
+  return _http(url, {method: "PATCH", body: body || "", headers: _headers(opts)});
 };
 
 exports.del = function(url, opts) {

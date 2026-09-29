@@ -315,3 +315,21 @@ func TestSameOriginIsExact(t *testing.T) {
 		}
 	}
 }
+
+// The http module's verbs reach the wire as themselves; patch is the one a
+// REST API's partial update needs.
+func TestHttpModuleSendsEachVerb(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(echoHandler))
+	t.Cleanup(srv.Close)
+	s := New(RequirePack(context.Background()), FetchPack(context.Background(), nil), HttpModulePack())
+	s.SetPolicy(AllowAll)
+
+	_, ret := turn(t, s, `function run(args) {
+		const h = require("http");
+		const u = `+quote(srv.URL)+`;
+		return [h.get(u), h.post(u, "{}"), h.put(u, "{}"), h.patch(u, "{}"), h.del(u)].map(r => r.headers["x-echo-method"]);
+	}`)
+	if string(ret) != `["GET","POST","PUT","PATCH","DELETE"]` {
+		t.Errorf("methods = %s", ret)
+	}
+}
