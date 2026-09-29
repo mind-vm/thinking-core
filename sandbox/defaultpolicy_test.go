@@ -117,6 +117,23 @@ func TestPrivateAddressesAreDeniedByDefault(t *testing.T) {
 		"http://169.254.169.254/latest/meta-data/", // the cloud metadata endpoint
 		"http://[::1]/x", "http://[fd00::1]/x",
 		"http://0.0.0.0/x",
+		// Ranges net.IP's IsPrivate does not know.
+		"http://100.64.0.1/x",               // shared address space, Tailscale
+		"http://198.18.0.1/x",               // benchmarking
+		"http://192.0.2.1/x",                // documentation
+		"http://224.0.0.1/x",                // multicast
+		"http://240.0.0.1/x",                // reserved
+		"http://255.255.255.255/x",          // limited broadcast
+		"http://[64:ff9b::a9fe:a9fe]/x",     // NAT64 of the metadata service
+		"http://[2002:7f00:1::1]/x",         // 6to4 of loopback
+		"http://[::127.0.0.1]/x",            // IPv4-compatible loopback
+		"http://[::ffff:127.0.0.1]/x",       // IPv4-mapped loopback
+		"http://[::ffff:169.254.169.254]/x", // IPv4-mapped metadata service
+		"http://[::]/x",                     // unspecified
+		"http://[fe80::1%25eth0]/x",         // link-local with a zone
+		"http://[ff02::1]/x",                // multicast
+		"http://[2001:db8::1]/x",            // documentation
+		"http://[2001::1]/x",                // Teredo
 	}
 	for _, u := range private {
 		if res := check(t, p, "fetch", map[string]any{"url": u}); res.Allowed {
@@ -127,7 +144,11 @@ func TestPrivateAddressesAreDeniedByDefault(t *testing.T) {
 
 func TestPublicAddressesAreAllowedWithNoAllowlist(t *testing.T) {
 	var p DefaultPolicy
-	for _, u := range []string{"https://example.com/x", "https://8.8.8.8/x"} {
+	for _, u := range []string{
+		"https://example.com/x", "https://8.8.8.8/x",
+		"https://[2606:4700:4700::1111]/x", "https://[::ffff:8.8.8.8]/x",
+		"https://100.128.0.1/x", // just past shared address space
+	} {
 		if res := check(t, p, "fetch", map[string]any{"url": u}); !res.Allowed {
 			t.Errorf("%s should be allowed, got %q", u, res.Reason)
 		}

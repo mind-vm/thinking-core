@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
+	"net/netip"
 	"net/url"
 	"slices"
 	"strings"
@@ -161,7 +161,7 @@ func (p DefaultPolicy) checkURL(args map[string]any) (PolicyCheckResult, error) 
 }
 
 // isPrivateHostURL reports whether rawURL's host is a non-public
-// target: loopback, unspecified, RFC-1918 / IPv6 ULA, link-local, or a
+// target: an IP literal in one of the nonPublic ranges, or a
 // conventional internal hostname. The check is syntactic (IP literals
 // and hostname suffixes) — it does not resolve DNS, so a public name
 // pointing at a private address (DNS rebinding) is out of scope here
@@ -177,10 +177,63 @@ func isPrivateHostURL(rawURL string) bool {
 		strings.HasSuffix(host, ".local") || strings.HasSuffix(host, ".internal") {
 		return true
 	}
-	ip := net.ParseIP(host)
-	if ip == nil {
+	ip, err := netip.ParseAddr(host)
+	if err != nil {
 		return false
 	}
-	return ip.IsLoopback() || ip.IsUnspecified() || ip.IsPrivate() ||
-		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast()
+	// An IPv4-mapped IPv6 address is judged as the IPv4 address it
+	// carries, so ::ffff:127.0.0.1 is loopback like 127.0.0.1.
+	ip = ip.WithZone("").Unmap()
+	for _, p := range nonPublic {
+		if p.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
+
+// nonPublic is every range a run is never let reach: the IANA
+// special-purpose registries' non-global entries, and the prefixes that
+// embed an IPv4 address a gateway would reach on the caller's behalf.
+// net.IP's IsPrivate knows only RFC 1918 and ULA, which leaves shared
+// address space — what a tailnet hands out — open.
+//
+// The same list guards apps/weekly's calendar fetch
+// (internal/kitchen/calendar_sync.go); agentloop is its own module and
+// cannot import it, so a change to one belongs in the other.
+var nonPublic = func() []netip.Prefix {
+	var ps []netip.Prefix
+	for _, s := range []string{
+		"0.0.0.0/8",       // this network
+		"10.0.0.0/8",      // private
+		"100.64.0.0/10",   // shared address space: CGNAT, Tailscale
+		"127.0.0.0/8",     // loopback
+		"169.254.0.0/16",  // link-local, the cloud metadata service
+		"172.16.0.0/12",   // private
+		"192.0.0.0/24",    // IETF protocol assignments
+		"192.0.2.0/24",    // documentation
+		"192.88.99.0/24",  // 6to4 relay anycast
+		"192.168.0.0/16",  // private
+		"198.18.0.0/15",   // benchmarking
+		"198.51.100.0/24", // documentation
+		"203.0.113.0/24",  // documentation
+		"224.0.0.0/4",     // multicast
+		"240.0.0.0/4",     // reserved, and the limited broadcast address
+
+		"::/96",          // unspecified, loopback, the deprecated IPv4-compatible form
+		"64:ff9b::/96",   // NAT64, well-known prefix
+		"64:ff9b:1::/48", // NAT64, local-use
+		"100::/64",       // discard-only
+		"2001::/23",      // IETF protocol assignments, Teredo among them
+		"2001:db8::/32",  // documentation
+		"2002::/16",      // 6to4
+		"3fff::/20",      // documentation
+		"fc00::/7",       // unique local
+		"fe80::/10",      // link-local
+		"fec0::/10",      // site-local, deprecated
+		"ff00::/8",       // multicast
+	} {
+		ps = append(ps, netip.MustParsePrefix(s))
+	}
+	return ps
+}()

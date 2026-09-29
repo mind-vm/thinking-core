@@ -144,8 +144,7 @@ type Config struct {
 	// Redactor strips known secret values out of every surface this
 	// package writes free text to: RunEvent (Content and Args, before
 	// OnEvent sees it), RunResult.FinalText, persisted RunStep.Content
-	// (via Steps.Append), the execution result the model reads next turn,
-	// and error messages recorded on a span.
+	// (via Steps.Append), and error messages recorded on a span.
 	// Optional; nil is a safe no-op (see redact.Redactor) — the
 	// defense-in-depth case this exists for is a script that logs a
 	// fetched credential (log(secret("KEY")), or a fetch() response
@@ -709,10 +708,7 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 			resultContent += "\n\nNOTICE: two replies are left before this task is cut off. If the work is done or nearly done, finish now (" +
 				finishInstruction(l.cfg) + "), saying what is finished and what is not."
 		}
-		// Redacted before the model reads it, not only before it is stored:
-		// a fetch() whose response echoes a credential back would otherwise
-		// hand that credential to the model, and so to whatever it writes.
-		userTurnContent := executionResultPrefix + "\n" + l.cfg.Redactor.Apply(resultContent)
+		userTurnContent := executionResultPrefix + "\n" + resultContent
 
 		callPrompt := usage.lastPrompt.Load()
 		callCompletion := usage.lastCompletion.Load()
