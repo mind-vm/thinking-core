@@ -76,26 +76,32 @@ rather than assuming.
 
 ## 3. Give it time
 
-Two timeouts are sized for a hosted API and will both bite on local
+Two timeouts apply, and only the first is likely to bite on local
 hardware:
 
-- **`Config.RunTimeout`** (default 5 minutes) covers a whole `Run` —
+- **`Config.RunTimeout`** (default 15 minutes) covers a whole `Run` —
   *every* turn of it, not one request. A ten-turn run on a CPU-bound model
-  will pass it.
-- **The HTTP client's own timeout** (default 5 minutes) covers one request.
-
-Raise both:
+  will pass it. When it does, `Run` returns `agentloop.ErrRunTimeout`, so
+  a run cut off by the cap is not mistaken for a stalled model.
+- **`llm.Config.IdleTimeout`** (default 5 minutes) covers *silence*, not
+  length: the wait for response headers, then the gap between two lines of
+  a streamed body. A model streaming slowly runs as long as `RunTimeout`
+  allows; one that stops sending is abandoned with `llm.ErrIdle`. A local
+  runtime that thinks for minutes before its first token needs it raised.
 
 ```go
 cfg.RunTimeout = 30 * time.Minute
 
 client, err := llm.NewOpenAI(llm.Config{
-    APIKey:     "unused",
-    BaseURL:    "http://localhost:11434/v1",
-    ChatModel:  "your-model-tag",
-    HTTPClient: &http.Client{Timeout: 10 * time.Minute},
+    APIKey:      "unused",
+    BaseURL:     "http://localhost:11434/v1",
+    ChatModel:   "your-model-tag",
+    IdleTimeout: 10 * time.Minute,
 })
 ```
+
+A client passed as `llm.Config.HTTPClient` keeps its own `Timeout`, which
+caps a whole call however steadily it streams — leave it unset there.
 
 Worth knowing too: a local server that runs out of memory answers `500`,
 which the client treats as retryable and retries three times with backoff —

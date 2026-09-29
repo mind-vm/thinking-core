@@ -90,38 +90,6 @@ func ExtractDataBlocks(s string) []string {
 	return out
 }
 
-// FileBlock is a fenced block labelled with a file path, and its index in
-// ExtractDataBlocks.
-type FileBlock struct {
-	Path  string
-	Index int
-}
-
-var pathAttrRe = regexp.MustCompile(`^(?:path|file|filename|title)=["']?([^"'\s]+)["']?$`)
-
-// ExtractFileBlocks returns the data blocks labelled with a path, the way
-// a model shows a file in chat: a fence opened as "go memory_test.go",
-// "go:memory_test.go" or "go title=memory_test.go". A bare label counts
-// only when it looks like a path, with a dot or a slash, so a fence opened
-// as "markdown answer" is not a file.
-func ExtractFileBlocks(s string) []FileBlock {
-	var out []FileBlock
-	for i, b := range dataBlocks(s) {
-		info := strings.TrimPrefix(b.info, ":")
-		for _, field := range strings.Fields(info) {
-			path := field
-			if m := pathAttrRe.FindStringSubmatch(field); m != nil {
-				path = m[1]
-			} else if strings.Contains(field, "=") || !strings.ContainsAny(field, "./") {
-				continue
-			}
-			out = append(out, FileBlock{Path: path, Index: i})
-			break
-		}
-	}
-	return out
-}
-
 // doneMarkerRe matches "DONE" on its own line (optionally indented)
 // followed by the final answer on subsequent lines.
 var doneMarkerRe = regexp.MustCompile(`(?m)^\s*DONE\s*\n([\s\S]*)`)

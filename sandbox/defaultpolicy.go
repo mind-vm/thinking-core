@@ -96,12 +96,39 @@ func (p DefaultPolicy) Check(_ context.Context, toolName string, args map[string
 		}
 	}
 	if sideEffectTools[toolName] && !slices.Contains(p.AllowTools, toolName) {
-		return PolicyCheckResult{
-			Allowed: false,
-			Reason:  fmt.Sprintf("%s is denied by the default sandbox policy — grant it via DefaultPolicy.AllowTools or install a custom PolicyChecker", toolName),
-		}, nil
+		return PolicyCheckResult{Allowed: false, Reason: p.refusal(toolName, args)}, nil
 	}
 	return PolicyCheckResult{Allowed: true}, nil
+}
+
+// refusal is the Reason for a denied tool. It is read by the model, not
+// by whoever configured the policy: the script that made the call gets
+// it as the error it throws, and nothing else reaches the model about
+// why. So it says what was refused and what the model can do instead,
+// and never what an operator could change — the model cannot grant
+// itself a tool, and being told how only earns a retry. labs/codeloop
+// measured a developer-facing refusal costing a turn and teaching
+// nothing, and a model that then claimed to have done what was refused.
+func (p DefaultPolicy) refusal(toolName string, args map[string]any) string {
+	switch toolName {
+	case "writeFile", "editFile":
+		return toolName + " is not permitted in this run, so no file was changed. " +
+			"Read and search as much as you need, then report the exact change you would make — the file, and the text before and after — instead of making it."
+	case "exec":
+		command, _ := args["command"].(string)
+		if len(p.AllowCommands) > 0 {
+			return fmt.Sprintf("this run may not run %q. The commands it may run are: %s. "+
+				"Use one of those or the other functions for the rest, and say plainly what you could not do.",
+				command, strings.Join(p.AllowCommands, ", "))
+		}
+		return "exec is not permitted in this run, so no command can be run. " +
+			"Do the work with the other functions, and say plainly what you could not verify."
+	case "sendEmail":
+		return "sendEmail is not permitted in this run, so nothing was sent. Put what you would have sent in your answer instead."
+	case "secret":
+		return "secret is not permitted in this run. Finish without the value, and say which one you needed."
+	}
+	return toolName + " is not permitted in this run. Do the task with the functions that are, and say plainly what you could not do."
 }
 
 func (p DefaultPolicy) checkURL(args map[string]any) (PolicyCheckResult, error) {
@@ -120,13 +147,14 @@ func (p DefaultPolicy) checkURL(args map[string]any) (PolicyCheckResult, error) 
 	if !p.AllowPrivateNetworks && isPrivateHostURL(rawURL) {
 		return PolicyCheckResult{
 			Allowed: false,
-			Reason:  fmt.Sprintf("URL %q targets a private or internal address, denied by the default sandbox policy", rawURL),
+			Reason:  fmt.Sprintf("this run may not reach %q: private and internal addresses are closed to it. Only public URLs can be fetched.", rawURL),
 		}, nil
 	}
 	if len(p.URLAllowPrefixes) > 0 {
 		return PolicyCheckResult{
 			Allowed: false,
-			Reason:  fmt.Sprintf("URL %q is not in the allowlist", rawURL),
+			Reason: fmt.Sprintf("this run may not reach %q. The URLs it may reach start with: %s.",
+				rawURL, strings.Join(p.URLAllowPrefixes, ", ")),
 		}, nil
 	}
 	return PolicyCheckResult{Allowed: true}, nil

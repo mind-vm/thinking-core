@@ -44,8 +44,18 @@ var ErrEmptyResponse = errors.New("agentloop: model returned an empty response")
 var ErrNoScript = errors.New("agentloop: model replied without a script after every correction")
 
 // RunTimeout is the default wall-clock cap on a single Run call
-// (override via Config.RunTimeout).
-const RunTimeout = 5 * time.Minute
+// (override via Config.RunTimeout). It bounds a whole run, every turn of
+// it; a single stalled call is the llm client's to catch (see
+// llm.Config.IdleTimeout). labs/codeloop found five minutes cutting off
+// runs that were working — a thinking model on a host producing 20
+// tokens a second spends minutes on one turn — and passed 15 on every
+// benchmark run after.
+const RunTimeout = 15 * time.Minute
+
+// ErrRunTimeout is returned when a Run reaches Config.RunTimeout. It is
+// distinct from the caller's own cancellation, and from a model call
+// that failed, so a run cut off by the cap is not read as a stall.
+var ErrRunTimeout = errors.New("agentloop: run timeout reached")
 
 // Config wires the dependencies the loop needs.
 type Config struct {
@@ -165,23 +175,6 @@ type Config struct {
 	// Optional; empty keeps the default.
 	Protocol string
 
-	// ProseAnswer ends a run on a reply with no script once at least one
-	// script has run in it, taking the reply as the answer. A developer who
-	// is done says so in words; answer() inside a template literal breaks on
-	// every backtick in the markdown. Before the first script, a
-	// RequireScript loop still corrects prose. Optional; false keeps
-	// answer() as the only way to finish under RequireScript.
-	ProseAnswer bool
-
-	// FileBlocks writes every fenced block labelled with a path (a fence
-	// opened as "go memory_test.go") through the sandbox's writeFile before the
-	// reply's script runs, so a model writes a file the way it shows one in
-	// chat and the script can build or test it at once. The writes go
-	// through writeFile, so the policy and approvals apply unchanged; a
-	// reply with file blocks and no script only writes. Needs a sandbox
-	// that defines writeFile. Optional.
-	FileBlocks bool
-
 	// UserOutput gives scripts a channel to the user and a way to finish:
 	// print(...) writes the task's result, console.log stays the model's own
 	// view, and done(message?) or exit(message?) ends the run after the
@@ -189,31 +182,6 @@ type Config struct {
 	// with nothing to say is refused with a notice. Optional; false keeps
 	// print as an alias of log.
 	UserOutput bool
-
-	// Think registers think(...), whose text lands in the log the model
-	// reads, so its reasoning outlives the elided script that wrote it.
-	// Optional.
-	Think bool
-
-	// State registers `state`, one object that survives between scripts.
-	State bool
-
-	// Plan registers plan(...steps), restated at the head of every later
-	// script's result.
-	Plan bool
-
-	// OpenAPI tells the model, through its corrections, that calling a
-	// function it expects is welcome even when it is not declared: a
-	// ReferenceError names what is missing and points at what exists
-	// instead of implying the declarations are complete. The prompt that
-	// invites the guess is the caller's. Optional.
-	OpenAPI bool
-
-	// Clarify asks for a plain-text reply before the first script: the task
-	// in the model's words, how it will know it is done, and what is
-	// unclear. It is emitted as an "understanding" event, and the loop
-	// answers "proceed". Costs one call per run. Optional.
-	Clarify bool
 
 	// BudgetNotice tells the model, in the result of the script that leaves
 	// two calls, that the run is about to be cut off, so work that is done
@@ -232,8 +200,6 @@ func finishInstruction(cfg Config) string {
 	switch {
 	case cfg.UserOutput:
 		return "print(...) what the user should see and call exit()"
-	case cfg.ProseAnswer:
-		return "once the work is done, reply with the answer in plain markdown and no script"
 	}
 	return "call answer(result) when you have the result"
 }
@@ -257,86 +223,6 @@ func staleCodeCorrection(finish string) string {
 // toolCallRe recognises the native tool-call formats models are trained
 // on — Qwen/Hermes XML, and function-call JSON — capturing the name.
 var toolCallRe = regexp.MustCompile(`<function=([A-Za-z_$][\w$.]*)>|<tool_call>\s*\{\s*"name"\s*:\s*"([A-Za-z_$][\w$.]*)"|"(?:name|function)"\s*:\s*"([A-Za-z_$][\w$.]*)"\s*,\s*"(?:arguments|parameters)"`)
-
-// filePrelude is the one line that writes a reply's file blocks, with a
-// log line per file so the result says what was written.
-func filePrelude(files []FileBlock) string {
-	if len(files) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	for _, f := range files {
-		path, _ := json.Marshal(f.Path)
-		fmt.Fprintf(&b, "writeFile(%s, blocks[%d]); console.log(\"wrote \" + %s + \" (\" + blocks[%d].length + \" chars)\"); ", path, f.Index, path, f.Index)
-	}
-	return b.String() + "\n"
-}
-
-// mostlyCode reports whether most of a reply's text sits inside code
-// fences. Such a reply is not a plain answer: it is usually a file shown
-// without a path, or a script in the wrong fence, and taking it as the
-// answer ends the task with nothing done. Fences are toggled line by line,
-// so a malformed one still counts as code.
-func mostlyCode(reply string) bool {
-	var code, total int
-	inFence := false
-	for _, line := range strings.Split(reply, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "```") {
-			inFence = !inFence
-			continue
-		}
-		total += len(trimmed)
-		if inFence {
-			code += len(trimmed)
-		}
-	}
-	return total > 0 && code*10 >= total*6
-}
-
-// codeOnlyCorrection is sent for a finishing reply that was mostly code
-// blocks with no script to run.
-func codeOnlyCorrection(fileBlocks bool) string {
-	msg := "Your reply was code blocks with no script, so nothing ran and nothing was written. "
-	if fileBlocks {
-		msg += "To write a file, put its path on the fence line itself, like ```go memory.go, not on the line below. "
-	}
-	return msg + "To keep working, reply with a ```javascript block. To finish, reply with the answer in plain markdown: what you changed or found, in words."
-}
-
-// clarifyRequest and clarifyProceed frame Config.Clarify's first exchange.
-const clarifyRequest = "Before any script, reply in plain text, with no code block: " +
-	"1) the task in your own words, 2) your plan in a few steps, 3) how you will know it is done, 4) anything unclear or missing. Keep it short."
-
-const clarifyProceed = "Proceed. Where something is unclear, make the most reasonable assumption and say which one in your result. Reply with a script."
-
-var (
-	notDefinedRe  = regexp.MustCompile(`ReferenceError: ([A-Za-z_$][\w$]*) is not defined`)
-	notFunctionRe = regexp.MustCompile(`TypeError: ([\w$.]+) is not a function`)
-)
-
-// openAPIHint is the correction for a guessed function that is not there,
-// under Config.OpenAPI: it names the miss without implying the model
-// should not have tried.
-func openAPIHint(errMsg string) string {
-	name := ""
-	if m := notDefinedRe.FindStringSubmatch(errMsg); m != nil {
-		name = m[1]
-	} else if m := notFunctionRe.FindStringSubmatch(errMsg); m != nil {
-		name = m[1]
-	}
-	if name == "" {
-		return ""
-	}
-	return "`" + name + "` is not available in this sandbox, and the attempt was recorded. " +
-		"Do the same with the declared globals or plain JavaScript."
-}
-
-// looksLikeToolCall reports whether a reply is a native tool call rather
-// than prose, so ProseAnswer never mistakes one for an answer.
-func looksLikeToolCall(reply string) bool {
-	return toolCallRe.MatchString(reply) || strings.Contains(reply, "<tool_call>")
-}
 
 // correctionFor is the correction for a reply with no script. A reply that
 // tried to make a native tool call is told so by name, because the model
@@ -417,7 +303,8 @@ func New(cfg Config) Loop {
 // Run drives the reasoning loop for one user message. See the package
 // doc for the protocol.
 func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err error) {
-	ctx, cancel := context.WithTimeout(ctx, l.cfg.RunTimeout)
+	ctx, cancel := context.WithTimeoutCause(ctx, l.cfg.RunTimeout,
+		fmt.Errorf("%w after %s — raise Config.RunTimeout for a slow host", ErrRunTimeout, l.cfg.RunTimeout))
 	defer cancel()
 
 	ctx, span := l.tracer.Start(ctx, spanRun, trace.WithAttributes(
@@ -533,9 +420,14 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 	}
 	defer cleanup()
 	sb.SetPolicy(l.cfg.Policy)
+	// Before the prompt is composed, so the declarations name the finish
+	// this run honours rather than one it ignores.
+	if l.cfg.UserOutput {
+		sb.EnableUserOutput()
+	}
 
 	sandboxAPI := sb.SystemPrompt()
-	sysPrompt := composeSystemPrompt(l.cfg.Protocol, sess.SystemPrompt, sandboxAPI)
+	sysPrompt := composeSystemPrompt(l.cfg.Protocol, l.cfg.UserOutput, sess.SystemPrompt, sandboxAPI)
 	if req.Context != "" {
 		sysPrompt = sysPrompt + "\n\n" + req.Context
 	}
@@ -549,10 +441,6 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 	history, stepOf := rehydrateHistory(priorSteps, l.cfg.HistoryWindow)
 	history = l.compactHistory(ctx, req, usage, history, stepOf, writeStep)
 	history = append(history, llm.Message{Role: "user", Content: req.Message})
-	clarifyPending := l.cfg.Clarify
-	if clarifyPending {
-		history = append(history, llm.Message{Role: "user", Content: clarifyRequest})
-	}
 	// baseLen marks the end of the prior conversation, before this Run
 	// appends anything of its own — elideStaleCode uses it so eliding
 	// stale run() bodies never touches an earlier run's real final
@@ -565,7 +453,6 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 	prevArgs := json.RawMessage("{}")
 	emptyRetries := 0
 	proseRetries := 0
-	scriptsRun := 0
 	lastError := ""
 
 	// runTurn is one LLM round-trip plus its optional JS execution,
@@ -653,12 +540,21 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 		}
 		llmSpan.End()
 		if err != nil {
+			// A call cut short by the run's own cap reports the cap: "context
+			// deadline exceeded" from inside a model call reads as a host
+			// that stopped answering, and it was read that way.
+			if cause := context.Cause(ctx); errors.Is(cause, ErrRunTimeout) {
+				err = cause
+			}
 			writeStep(RunStep{
 				StepType: "error",
 				Content:  err.Error(),
 				ToolArgs: json.RawMessage(`{}`),
 			})
 			l.emit(req.OnEvent, RunEvent{Type: "error", Content: err.Error()})
+			if errors.Is(err, ErrRunTimeout) {
+				return finalize("error"), err, true
+			}
 			return finalize("error"), fmt.Errorf("agentloop: llm: %w", err), true
 		}
 		usage.prompt.Add(int32(resp.InputTokens))
@@ -708,41 +604,18 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 		// finish; this is a defensive fallback for a model that emits
 		// the old marker. Checked before JS extraction so an accidental
 		// ```javascript inside the final answer doesn't loop.
-		if clarifyPending {
-			clarifyPending = false
-			if ExtractJSBlock(replyText) == "" && strings.TrimSpace(replyText) != "" && !looksLikeToolCall(replyText) {
-				l.emit(req.OnEvent, RunEvent{Type: "understanding", Content: strings.TrimSpace(replyText)})
-				history = append(history,
-					llm.Message{Role: "assistant", Content: replyText},
-					llm.Message{Role: "user", Content: clarifyProceed},
-				)
-				return RunResult{}, nil, false
-			}
-		}
-
 		if done, final := ExtractDoneMarker(replyText); done {
 			return l.respond(req, writeStep, finalize, usage, final), nil, true
 		}
 
 		jsCode := ExtractJSBlock(replyText)
-		var files []FileBlock
-		if l.cfg.FileBlocks {
-			files = ExtractFileBlocks(replyText)
-		}
 		// A copied marker runs as a no-op, so under RequireScript it is
 		// corrected like a reply with no script rather than executed.
 		copiedMarker := l.cfg.RequireScript && isStaleCodeCopy(jsCode)
-		codeOnly := jsCode == "" && len(files) == 0 && mostlyCode(replyText)
-		if jsCode == "" && len(files) == 0 && l.cfg.ProseAnswer && scriptsRun > 0 && strings.TrimSpace(replyText) != "" && !looksLikeToolCall(replyText) && !codeOnly {
-			return l.respond(req, writeStep, finalize, usage, strings.TrimSpace(replyText)), nil, true
-		}
-		if (jsCode == "" && len(files) == 0) || copiedMarker {
+		if jsCode == "" || copiedMarker {
 			if l.cfg.RequireScript && proseRetries < maxProseRetries {
 				proseRetries++
 				warning, correction := "reply had no script, asking again", correctionFor(replyText, finishInstruction(l.cfg))
-				if codeOnly && l.cfg.ProseAnswer {
-					warning, correction = "reply was code blocks with no script, asking again", codeOnlyCorrection(l.cfg.FileBlocks)
-				}
 				if copiedMarker {
 					warning, correction = "reply copied an elided earlier script, asking again", staleCodeCorrection(finishInstruction(l.cfg))
 				}
@@ -768,12 +641,6 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 			return l.respond(req, writeStep, finalize, usage, replyText), nil, true
 		}
 
-		// File blocks are written by one prelude line ahead of the script,
-		// so an error in the model's own code still maps to its own line.
-		modelCode := jsCode
-		prelude := filePrelude(files)
-		jsCode = prelude + jsCode
-
 		// Run the JS. Persist before AND after so the trace shows the
 		// in-flight script even if execution panics.
 		start := time.Now()
@@ -788,20 +655,7 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 		var persistBlob json.RawMessage
 
 		_, jsSpan := l.tracer.Start(tctx, spanExecuteJS)
-		if l.cfg.UserOutput {
-			sb.EnableUserOutput()
-		}
-		if l.cfg.Think {
-			sb.EnableThink()
-		}
-		if l.cfg.State {
-			sb.EnableState()
-		}
-		if l.cfg.Plan {
-			sb.EnablePlan()
-		}
 		sb.SetBlocks(ExtractDataBlocks(replyText))
-		scriptsRun++
 		logs, ret, execErr := sb.ExecuteTurn(jsCode, prevArgs)
 		if execErr != nil {
 			rerr := redactErr(l.cfg.Redactor, execErr)
@@ -821,13 +675,10 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 			// This does NOT end the turn — the model gets to see the error
 			// and retry next iteration — so it's recorded on jsSpan above,
 			// not returned as turnErr here.
-			clean, location, hint := describeScriptError(execErr.Error(), modelCode, strings.Count(prelude, "\n"))
+			clean, location, hint := describeScriptError(execErr.Error(), jsCode, 0)
 			resultContent = "Error: " + clean
 			if location != "" {
 				resultContent += "\n" + location
-			}
-			if hint == "" && l.cfg.OpenAPI {
-				hint = openAPIHint(clean)
 			}
 			if hint == "" {
 				hint = retryHintForError(clean)
@@ -923,6 +774,10 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 
 	for iter := 0; iter < l.cfg.MaxIterations; iter++ {
 		if ctx.Err() != nil {
+			if cause := context.Cause(ctx); errors.Is(cause, ErrRunTimeout) {
+				l.emit(req.OnEvent, RunEvent{Type: "error", Content: cause.Error()})
+				return finalize("error"), cause
+			}
 			l.emit(req.OnEvent, RunEvent{Type: "error", Content: "context cancelled: " + ctx.Err().Error()})
 			res := finalize("error")
 			return res, ctx.Err()

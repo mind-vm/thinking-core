@@ -45,6 +45,12 @@ speaking the OpenAI wire, pointed anywhere by `OPENAI_BASE_URL` /
   fallback exists for upstreams that reject `stream:true`; a 429 is not a
   streaming rejection, and falling through would spend the retry budget a second
   time against a window still closed.
+- **A call is bounded by silence, not by length.** `Config.IdleTimeout`
+  (default 5 minutes) is the longest the client waits for the response
+  headers, and then between two lines of a streamed body; the default HTTP
+  client carries no wall-clock `Timeout`. A thinking model on a slow host
+  streams for minutes and is working the whole time, and a total cap cannot
+  tell that from a host that stopped sending. A stall returns `ErrIdle`.
 - **Configurable** via `Config.MaxRetries` (zero = default 3, negative = off)
   and `Config.RetryBaseDelay`, plus `OPENAI_MAX_RETRIES`, where `"0"` maps onto
   the negative sentinel because the zero value already means "use the default".
@@ -87,3 +93,6 @@ surface and appear in every consumer's deployment config.
   extraction, smoke-tested end-to-end.
 - 2026-08-26 — Retry policy added, adapted from `owainlewis/neo` (MIT).
 - 2026-08-28 — Recorded retroactively.
+- 2026-09-29 — The 5-minute `http.Client.Timeout` replaced by
+  `Config.IdleTimeout`. `labs/codeloop`'s benchmark lost runs that were
+  streaming normally to a total cap, and its traces read those as stalls.

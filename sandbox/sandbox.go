@@ -46,7 +46,6 @@ type Sandbox struct {
 	corePrompt   string                // replaces defaultCorePrompt when set
 	blocks       []string              // the reply's data blocks, injected as `blocks` next turn
 	userOutput   bool                  // print/done/exit are the user channel; see EnableUserOutput
-	thinkEnabled bool                  // think() is registered; see EnableThink
 	printed      []string              // print() output for the user, across scripts
 	doneCalled   bool                  // done() or exit() was called during this ExecuteTurn
 	doneMessage  string                // the message passed to done() or exit()
@@ -61,23 +60,7 @@ type Sandbox struct {
 	// not in this set — see resetGlobals(). Stray state on globalThis
 	// from one Execute should not survive into the next.
 	baseKeys map[string]struct{}
-
-	// keepGlobals leaves a script's own globalThis keys in place between
-	// scripts of one turn, so the runtime reads as a REPL. Off by
-	// default: state that outlives a script is a surprise unless the
-	// prompt promised it.
-	keepGlobals bool
-
-	// stateEnabled and planEnabled register `state` and plan(); planSteps
-	// is the standing plan repeated at the head of every later result.
-	stateEnabled bool
-	planEnabled  bool
-	planSteps    []string
 }
-
-// SetKeepGlobals makes globals defined by one script visible to the
-// next within the same turn.
-func (s *Sandbox) SetKeepGlobals(keep bool) { s.keepGlobals = keep }
 
 // New creates a fresh Sandbox with core primitives and the given Packs.
 //
@@ -149,7 +132,7 @@ func snapshotGlobalKeys(rt *goja.Runtime) map[string]struct{} {
 // pack registration. Called before each Execute so a previous run's
 // `globalThis.foo = ...` doesn't leak into the next one.
 func (s *Sandbox) resetGlobals() {
-	if s.keepGlobals || len(s.baseKeys) == 0 {
+	if len(s.baseKeys) == 0 {
 		return
 	}
 	global := s.runtime.GlobalObject()
@@ -250,13 +233,29 @@ func (s *Sandbox) registerCorePrimitives() {
 	s.helpEntries["parseUrl"] = "parseUrl(url) — Parse an absolute URL string. Returns {href, protocol, hostname, port, pathname, search, hash} or null for relative URLs/invalid input."
 }
 
-// defaultCorePrompt declares the globals every sandbox registers.
+// answerDecl and userOutputDecl are the two ways a run finishes, and
+// defaultCorePrompt declares exactly one: the one this sandbox's loop
+// honours. labs/codeloop measured what naming a finish the run did not
+// wire costs — a model that tries to finish, is told the function does
+// not exist or is ignored, and retries until the turn cap: +8 passes in
+// 60 once the declarations matched, and turn-cap failures from 30% of
+// runs to 7%.
+const answerDecl = `/** Deliver the final result and END the run — pass a string (your answer, as markdown) or a JSON value (structured data). Call it once, when you have the answer; nothing after it runs in a new turn. This is how you finish. */
+declare function answer(result: string | object): void;
+`
+
+const userOutputDecl = `/** Write for the user: the task's result. log/console are for you; print is what the user reads. */
+declare function print(...values: any[]): void;
+/** END the task once this script returns; message is added after what you printed. Call it only when the work is done. This is how you finish. */
+declare function exit(message?: string): void;
+`
+
+// defaultCorePrompt declares the globals every sandbox registers, with
+// {{finish}} standing for the finish the run registered.
 const defaultCorePrompt = `// --- Core ---
 // You implement: function run(args) { ... } — one per turn. Everything below is provided by the sandbox.
 
-/** Deliver the final result and END the run — pass a string (your answer, as markdown) or a JSON value (structured data). Call it once, when you have the answer; nothing after it runs in a new turn. This is how you finish. */
-declare function answer(result: string | object): void;
-/** Output to console. Objects are JSON-serialized. */
+{{finish}}/** Output to console. Objects are JSON-serialized. */
 declare function log(...args: any[]): void;
 /** Assert an invariant. If cond is falsy, throws with message — surfacing as an error you see next turn, so you can fix it. Guard your inputs and results: assert(args.caps, "caps missing"), assert(rows.length, "no rows"). A loud failure you can recover from beats a silent wrong answer. */
 declare function assert(cond: any, message?: string): void;
@@ -295,7 +294,11 @@ func (s *Sandbox) SetCorePrompt(prompt string) {
 func (s *Sandbox) SystemPrompt() string {
 	core := s.corePrompt
 	if core == "" {
-		core = defaultCorePrompt
+		finish := answerDecl
+		if s.userOutput {
+			finish = userOutputDecl
+		}
+		core = strings.Replace(defaultCorePrompt, "{{finish}}", finish, 1)
 	}
 	dts := []string{core}
 
@@ -478,43 +481,24 @@ func (s *Sandbox) ExecuteTurn(code string, argsJSON json.RawMessage) (logs strin
 
 	// Define the code, then call run(args) if the model declared it. Loose
 	// scripts (no run) execute for their side effects and return nothing.
-	//
-	// Under keepGlobals the script runs at program scope instead of
-	// inside a closure, so its own declarations persist into the next
-	// script: that is the whole difference between a closure and a REPL.
 	val, runErr := s.runtime.RunString(s.wrap(code))
 	if runErr != nil {
 		s.runtime.ClearInterrupt()
 		s.Emit(Event{Kind: EventError, Summary: "script error", Detail: runErr.Error()})
-		return s.planHeader() + s.joinedLogs(), nil, runErr
+		return s.joinedLogs(), nil, runErr
 	}
 
-	logs = s.planHeader() + s.joinedLogs()
+	logs = s.joinedLogs()
 	ret = exportJSON(val)
 	s.Emit(Event{Kind: EventScriptResult, Summary: "result", Result: logs})
 	return logs, ret, nil
 }
 
 // wrap turns a model's script into the program that is evaluated: a
-// closure whose value is run(args) if one was declared, or — under
-// keepGlobals — the script itself at program scope, with the run(args)
-// call appended so its value is still what the turn returns.
+// closure whose value is run(args) if one was declared, so a bare
+// top-level return threads as args too.
 func (s *Sandbox) wrap(code string) string {
-	call := "\nif (typeof run === 'function') { return run(args); }\n"
-	closure := "(function(){\n" + code + call + "})()"
-	if !s.keepGlobals {
-		return closure
-	}
-	// Program scope is what makes the next script see this one's
-	// declarations. A top-level return is illegal there, and the
-	// protocol documents one, so a script that uses it gets the closure
-	// instead: threading a value back is worth more to that script than
-	// persistence it did not ask for.
-	repl := code + "\n;(function(){" + call + "})()"
-	if _, err := goja.Compile("", repl, false); err != nil {
-		return closure
-	}
-	return repl
+	return "(function(){\n" + code + "\nif (typeof run === 'function') { return run(args); }\n})()"
 }
 
 // DefaultMaxLogBytes caps one turn's log() output when

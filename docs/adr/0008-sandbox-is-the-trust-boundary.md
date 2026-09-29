@@ -41,6 +41,12 @@ Over all of them, **`sandbox.PolicyChecker` gates each side-effecting call**.
 private-network fetches); `sandbox.AllowAll` is the explicit, named fail-open
 escape hatch — fail-open is available but never accidental.
 
+**A refusal's `Reason` is written for the model**, because the model is the one
+that reads it: the script that made the call gets it as the error it throws.
+So it names what was refused and what the run may do instead — the commands
+exec may run, the URLs fetch may reach — and never a setting only the operator
+can change. The operator reads the policy, not its refusals.
+
 **A capability whose `Build` fails is logged and skipped**, emitting a `warning`
 rather than aborting the run. One flaky capability should not deny the user
 their turn.
@@ -87,3 +93,7 @@ behaviour change for anyone relying on the default and should be treated as one.
   plain `[]Capability`, and `BuildContext` lost its host-specific fields.
 - 2026-08-24 — `pool.SandboxPool` added, exposing the closed-over-context trap.
 - 2026-08-28 — Recorded here retroactively.
+- 2026-09-29 — `DefaultPolicy`'s refusals rewritten for the model.
+  `labs/codeloop` measured the old wording ("grant it via
+  `DefaultPolicy.AllowTools`") costing a turn and teaching nothing; a model
+  once answered it by claiming the refused write had happened.

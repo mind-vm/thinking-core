@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -225,5 +226,39 @@ func TestNilPolicyFailsOpen(t *testing.T) {
 	}
 	if !res.Allowed {
 		t.Error("a sandbox with no policy should fail open")
+	}
+}
+
+// A refusal is read by the model, so it names what was refused and what
+// is permitted instead, and never a knob only the operator can turn.
+func TestRefusalsAreAddressedToTheModel(t *testing.T) {
+	cases := []struct {
+		p    DefaultPolicy
+		tool string
+		args map[string]any
+		want []string
+	}{
+		{DefaultPolicy{}, "writeFile", map[string]any{"path": "a.go"}, []string{"writeFile", "no file was changed", "report the exact change"}},
+		{DefaultPolicy{}, "exec", map[string]any{"command": "sh"}, []string{"no command can be run"}},
+		{DefaultPolicy{AllowCommands: []string{"go", "make"}}, "exec", map[string]any{"command": "sh"}, []string{`"sh"`, "go, make"}},
+		{DefaultPolicy{}, "sendEmail", nil, []string{"nothing was sent"}},
+		{DefaultPolicy{URLAllowPrefixes: []string{"https://api.example.com/"}}, "fetch", map[string]any{"url": "https://evil.example/"}, []string{"evil.example", "https://api.example.com/"}},
+		{DefaultPolicy{}, "fetch", map[string]any{"url": "http://127.0.0.1/"}, []string{"127.0.0.1", "public URLs"}},
+	}
+	for _, tc := range cases {
+		res := check(t, tc.p, tc.tool, tc.args)
+		if res.Allowed {
+			t.Fatalf("%s %v was allowed", tc.tool, tc.args)
+		}
+		for _, w := range tc.want {
+			if !strings.Contains(res.Reason, w) {
+				t.Errorf("%s refusal %q does not say %q", tc.tool, res.Reason, w)
+			}
+		}
+		for _, operator := range []string{"AllowTools", "PolicyChecker", "DefaultPolicy"} {
+			if strings.Contains(res.Reason, operator) {
+				t.Errorf("%s refusal %q is addressed to the operator (%s)", tc.tool, res.Reason, operator)
+			}
+		}
 	}
 }

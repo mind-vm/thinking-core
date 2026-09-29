@@ -1,5 +1,7 @@
 package agentloop
 
+import "strings"
+
 // TextEmissionSystemPrompt is the workflow contract the loop layers on
 // top of the sandbox's primitive documentation. It defines the
 // run(args)→return protocol: each turn the model emits one fenced
@@ -19,7 +21,27 @@ package agentloop
 // and then its continuations silently never run, which is why the
 // prompt bans them outright rather than saying "unsupported".
 func TextEmissionSystemPrompt() string {
-	return `You are a Thinking Core — an intelligent assistant that solves problems by writing JavaScript that runs in a sandbox.
+	return textEmissionPrompt(false)
+}
+
+// answerStep and userOutputStep are the protocol's finishing step, one
+// per way a run can end; the prompt names only the one the loop wired,
+// for the reason defaultCorePrompt does (see sandbox.answerDecl).
+const answerStep = "2. TO FINISH — call answer(result) (from inside run, or directly): pass a string (markdown) or a JSON value. This ends the run and returns result to the user. Call it once, when you actually have the answer; nothing after it runs, and do not restate the answer anywhere else."
+
+const userOutputStep = "2. TO FINISH — print(...) what the user should read, then call exit() (from inside run, or directly). The task ends once that script returns, and the user gets everything you printed. Call exit() once, when the work is actually done; log() stays your own view and the user never sees it."
+
+// textEmissionPrompt is the default contract, finishing through print()
+// and exit() under Config.UserOutput and through answer() otherwise.
+func textEmissionPrompt(userOutput bool) string {
+	step := answerStep
+	if userOutput {
+		step = userOutputStep
+	}
+	return strings.Replace(textEmissionTemplate, "{{finish}}", step, 1)
+}
+
+const textEmissionTemplate = `You are a Thinking Core — an intelligent assistant that solves problems by writing JavaScript that runs in a sandbox.
 
 ## How a run works
 
@@ -40,7 +62,7 @@ Inside run() you may call standard JavaScript built-ins plus exactly the functio
 
 There is NO tool-calling or function-calling channel in this conversation. Do not reply with <tool_call>, <function=...>, or function-call JSON: such a reply runs nothing. Every function under "## Sandbox API" is an ordinary JavaScript function — call it from inside run(), e.g. ` + "`const text = readFile(\"main.go\")`" + `.
 
-2. TO FINISH — call answer(result) (from inside run, or directly): pass a string (markdown) or a JSON value. This ends the run and returns result to the user. Call it once, when you actually have the answer; nothing after it runs, and do not restate the answer anywhere else.
+{{finish}}
 
 ## What you carry vs. what you see
 
@@ -67,7 +89,6 @@ Sandboxed JavaScript engine (goja) — modern syntax, but NOT a browser and NOT 
 - Modern syntax works: arrow functions, const/let, template literals (multi-line, with ${...}), destructuring, spread, optional chaining (?.). Write normal modern JavaScript.
 - No browser or Node globals: no setTimeout, no DOM, no process, no Buffer.
 - Top-level state does not survive between turns. Only what run() returns (→ next turn's args) persists.`
-}
 
 // ComposeSystemPrompt builds the full system prompt the loop sends to
 // the LLM for a session: the text-emission contract, then the optional
@@ -75,15 +96,16 @@ Sandboxed JavaScript engine (goja) — modern syntax, but NOT a browser and NOT 
 // protocol, sandbox API LAST so declarations sit close to the user
 // message.
 func ComposeSystemPrompt(persona, sandboxAPI string) string {
-	return composeSystemPrompt("", persona, sandboxAPI)
+	return composeSystemPrompt("", false, persona, sandboxAPI)
 }
 
 // composeSystemPrompt is ComposeSystemPrompt with Config.Protocol in place
-// of the default contract when one is set.
-func composeSystemPrompt(protocol, persona, sandboxAPI string) string {
+// of the default contract when one is set, and the default contract's
+// finish matching Config.UserOutput when not.
+func composeSystemPrompt(protocol string, userOutput bool, persona, sandboxAPI string) string {
 	out := protocol
 	if out == "" {
-		out = TextEmissionSystemPrompt()
+		out = textEmissionPrompt(userOutput)
 	}
 	if persona != "" {
 		out += "\n\n## Persona\n\n" + persona

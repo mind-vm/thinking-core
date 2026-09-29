@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mind-vm/agentloop"
 	"github.com/mind-vm/agentloop/llm"
@@ -500,5 +501,43 @@ func TestRun_TokenAggregation_SumsAcrossTurns(t *testing.T) {
 	}
 	if got, want := result.Tokens.Completion, int32(3); got != want {
 		t.Errorf("summed completion tokens: got %d, want %d", got, want)
+	}
+}
+
+// ---- branch: the run's own cap reached mid-call ----
+
+// blockingClient answers nothing until its context is done, the way a
+// slow host looks from inside one long call.
+type blockingClient struct{}
+
+func (blockingClient) Name() string { return "blocking" }
+func (blockingClient) Complete(ctx context.Context, _ llm.CompletionRequest) (llm.CompletionResponse, error) {
+	<-ctx.Done()
+	return llm.CompletionResponse{}, ctx.Err()
+}
+func (b blockingClient) Stream(ctx context.Context, req llm.CompletionRequest, _ func(string)) (llm.CompletionResponse, error) {
+	return b.Complete(ctx, req)
+}
+
+// A run cut off by Config.RunTimeout says so, rather than surfacing the
+// call's "context deadline exceeded", which reads as a stalled host.
+func TestRun_RunTimeoutIsNamed(t *testing.T) {
+	sessions := newMemorySessions()
+	sessions.put("s1", agentloop.Session{ID: "s1"})
+	loop := agentloop.New(agentloop.Config{
+		LLM: blockingClient{}, Sessions: sessions, Steps: newMemorySteps(),
+		SandboxBuilder: emptyBuilder{}, RunTimeout: 50 * time.Millisecond,
+	})
+	var events []string
+	_, err := loop.Run(context.Background(), agentloop.RunRequest{SessionID: "s1", Message: "hi", OnEvent: func(e agentloop.RunEvent) {
+		if e.Type == "error" {
+			events = append(events, e.Content)
+		}
+	}})
+	if !errors.Is(err, agentloop.ErrRunTimeout) {
+		t.Fatalf("err = %v, want ErrRunTimeout", err)
+	}
+	if !strings.Contains(err.Error(), "50ms") || len(events) != 1 || !strings.Contains(events[0], "run timeout") {
+		t.Errorf("the cap is not named: err %q, events %q", err, events)
 	}
 }

@@ -37,8 +37,25 @@ type Config struct {
 	// Headers carries extra request headers some gateways require or
 	// recommend — e.g. OpenRouter's optional HTTP-Referer / X-Title.
 	Headers map[string]string
-	// HTTPClient is optional; nil falls back to a 5-minute-timeout client.
+	// HTTPClient is optional; nil builds one whose only limit is
+	// IdleTimeout. A client passed here keeps its own Timeout, which caps
+	// a whole call however steadily it streams — set none on it if a
+	// thinking model's long answers are expected.
 	HTTPClient *http.Client
+
+	// IdleTimeout is the longest a call waits without receiving anything
+	// from the upstream: for the response headers, and then between two
+	// lines of a streamed body. A stream that keeps sending runs as long
+	// as the caller's context allows. A non-streamed completion sends
+	// nothing until it is done, so for Complete this is the whole call.
+	// Zero uses DefaultIdleTimeout; negative disables it.
+	//
+	// It replaces a wall-clock cap on the request, which labs/codeloop
+	// found cutting off calls that were working: a host producing 20
+	// tokens a second takes minutes over a turn that thinks for a few
+	// thousand, and a total cap cannot tell that from a host that has
+	// stopped sending.
+	IdleTimeout time.Duration
 
 	// MaxRetries caps how many extra attempts a /chat/completions
 	// request gets after its first one fails retryably — a transport
@@ -99,6 +116,14 @@ func envOr(name, def string) string {
 	return def
 }
 
+// DefaultIdleTimeout is Config.IdleTimeout's default: the longest a call
+// waits in silence before it is abandoned.
+const DefaultIdleTimeout = 5 * time.Minute
+
+// ErrIdle reports a call abandoned because the upstream sent nothing for
+// Config.IdleTimeout — a stalled host, as against a slow one.
+var ErrIdle = errors.New("llm: the upstream sent nothing within the idle timeout")
+
 // openAIClient implements Client against an OpenAI-wire-compatible
 // POST {baseURL}/chat/completions endpoint.
 type openAIClient struct {
@@ -111,6 +136,7 @@ type openAIClient struct {
 	http            *http.Client
 	maxRetries      int
 	retryBaseDelay  time.Duration
+	idleTimeout     time.Duration // <= 0: no idle watchdog on a stream
 }
 
 // NewOpenAI builds a Client from cfg. Returns an error if both APIKey
@@ -120,9 +146,17 @@ func NewOpenAI(cfg Config) (Client, error) {
 	if cfg.APIKey == "" && cfg.TokenSource == nil {
 		return nil, errors.New("llm: OPENAI_API_KEY is not set")
 	}
+	idle := cfg.IdleTimeout
+	if idle == 0 {
+		idle = DefaultIdleTimeout
+	}
 	hc := cfg.HTTPClient
 	if hc == nil {
-		hc = &http.Client{Timeout: 5 * time.Minute}
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		if idle > 0 {
+			transport.ResponseHeaderTimeout = idle
+		}
+		hc = &http.Client{Transport: transport}
 	}
 	maxRetries := cfg.MaxRetries
 	switch {
@@ -145,6 +179,7 @@ func NewOpenAI(cfg Config) (Client, error) {
 		http:            hc,
 		maxRetries:      maxRetries,
 		retryBaseDelay:  retryBaseDelay,
+		idleTimeout:     idle,
 	}, nil
 }
 
@@ -225,11 +260,24 @@ func (c *openAIClient) streamChat(ctx context.Context, model string, wire chatRe
 	if err != nil {
 		return CompletionResponse{}, fmt.Errorf("llm: stream marshal: %w", err)
 	}
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
 	respBody, err := c.doJSONPost(ctx, "/chat/completions", body)
 	if err != nil {
 		return CompletionResponse{}, err
 	}
 	defer func() { _ = respBody.Close() }()
+
+	// The watchdog is reset by every line the upstream sends, so it
+	// fires only on silence; cancelling ctx aborts the blocked read.
+	alive := func() {}
+	if c.idleTimeout > 0 {
+		watchdog := time.AfterFunc(c.idleTimeout, func() {
+			cancel(fmt.Errorf("%w (%s)", ErrIdle, c.idleTimeout))
+		})
+		defer watchdog.Stop()
+		alive = func() { watchdog.Reset(c.idleTimeout) }
+	}
 
 	out := CompletionResponse{Model: model}
 	var content, reasoning strings.Builder
@@ -238,6 +286,7 @@ func (c *openAIClient) streamChat(ctx context.Context, model string, wire chatRe
 	scanner := bufio.NewScanner(respBody)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
+		alive()
 		line := scanner.Text()
 		data, ok := strings.CutPrefix(line, "data:")
 		if !ok {
@@ -274,6 +323,9 @@ func (c *openAIClient) streamChat(ctx context.Context, model string, wire chatRe
 		}
 	}
 	if err := scanner.Err(); err != nil {
+		if cause := context.Cause(ctx); errors.Is(cause, ErrIdle) {
+			return CompletionResponse{}, fmt.Errorf("llm: stream read: %w", cause)
+		}
 		return CompletionResponse{}, fmt.Errorf("llm: stream read: %w", err)
 	}
 	if !sawFrame {

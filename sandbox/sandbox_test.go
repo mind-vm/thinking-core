@@ -390,16 +390,3 @@ func TestLoggedMultilineObjectsAreReadable(t *testing.T) {
 		}
 	}
 }
-
-// think() writes into the log the model reads, tagged as a thought.
-func TestThinkWritesToTheLog(t *testing.T) {
-	s := New()
-	s.EnableThink()
-	logs, _ := turn(t, s, `think("plan: read memory.go, then add AllowN");`)
-	if !strings.Contains(logs, "[think] plan: read memory.go, then add AllowN") {
-		t.Errorf("logs = %q", logs)
-	}
-	if _, _, err := s.ExecuteTurn(`think("still here");`, nil); err != nil {
-		t.Errorf("think() did not survive the global reset: %v", err)
-	}
-}
