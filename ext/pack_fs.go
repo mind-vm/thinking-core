@@ -50,6 +50,19 @@ type WorkspaceOptions struct {
 	// no human is available, and a denied write simply fails — the same
 	// contract the fetch pack's InputRequester has.
 	Approver sandbox.InputRequester
+
+	// Refuse, when it returns a non-empty reason, refuses a writeFile or
+	// editFile on that path outright: before the policy, and without
+	// asking the Approver. It is for files no one should change by hand
+	// — a lockfile, generated code — where a yes in the approval prompt
+	// would still be the wrong change. The reason reaches the model
+	// verbatim, so it should name what to do instead.
+	Refuse func(rel string) string
+
+	// BeforeWrite runs once a mutation is authorised and before anything
+	// is written, with the path about to change. It is where a caller
+	// records the state the change will be compared against.
+	BeforeWrite func(ctx context.Context, rel string)
 }
 
 func (o WorkspaceOptions) maxFileBytes() int64 {
@@ -255,4 +268,24 @@ func (w *workspace) authorize(tool, rel string) {
 		w.throw("%s: the user declined to allow changes to %s", tool, rel)
 	}
 	w.sb.Emit(sandbox.Event{Kind: sandbox.EventAskResult, Summary: "approved: " + rel})
+}
+
+// refuse applies WorkspaceOptions.Refuse. It runs before requireRead
+// and authorize: reading a file first does not make it editable, and
+// nobody should be asked to approve a change that is wrong either way.
+func (w *workspace) refuse(tool, rel string) {
+	if w.opts.Refuse == nil {
+		return
+	}
+	if reason := w.opts.Refuse(rel); reason != "" {
+		w.sb.Emit(sandbox.Event{Kind: sandbox.EventError, Summary: tool + " refused: " + rel, Detail: reason})
+		w.throw("%s: %s", tool, reason)
+	}
+}
+
+// beforeWrite applies WorkspaceOptions.BeforeWrite.
+func (w *workspace) beforeWrite(rel string) {
+	if w.opts.BeforeWrite != nil {
+		w.opts.BeforeWrite(w.ctx, rel)
+	}
 }

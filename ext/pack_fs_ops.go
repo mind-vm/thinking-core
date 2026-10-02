@@ -131,9 +131,11 @@ func (w *workspace) writeFile(name string, content string) bool {
 	if info, err := w.root.Stat(rel); err == nil && info.IsDir() {
 		w.throw("writeFile: %s is a directory", rel)
 	}
+	w.refuse("writeFile", rel)
 	w.requireRead("writeFile", rel)
 
 	w.authorize("writeFile", rel)
+	w.beforeWrite(rel)
 
 	if dir := path.Dir(rel); dir != "." && dir != "/" {
 		if err := w.root.MkdirAll(dir, 0o755); err != nil {
@@ -159,6 +161,7 @@ func (w *workspace) editFile(name, find, replace string, opts map[string]any) in
 	if find == "" {
 		w.throw("editFile: the text to find must not be empty")
 	}
+	w.refuse("editFile", rel)
 	w.requireRead("editFile", rel)
 
 	data, err := w.root.ReadFile(rel)
@@ -181,6 +184,7 @@ func (w *workspace) editFile(name, find, replace string, opts map[string]any) in
 	}
 
 	w.authorize("editFile", rel)
+	w.beforeWrite(rel)
 
 	replaced := 1
 	if all {

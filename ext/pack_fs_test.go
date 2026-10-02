@@ -500,3 +500,69 @@ func TestAmbiguousEditIsRefusedBeforeAsking(t *testing.T) {
 		t.Errorf("no one should be asked to approve an edit that cannot be made: %v", approver.asked)
 	}
 }
+
+// A refused path is refused before anyone is asked: an approval prompt
+// for a change that is wrong whatever the answer only teaches people to
+// say yes.
+func TestRefuseComesBeforeTheApprover(t *testing.T) {
+	approver := &recordingApprover{answer: true}
+	opts := ext.WorkspaceOptions{
+		Approver: approver,
+		Refuse: func(rel string) string {
+			if rel == "go.sum" {
+				return "go.sum is generated — run go mod tidy instead"
+			}
+			return ""
+		},
+	}
+	sb, dir := workspaceAt(t, map[string]string{"go.sum": "old\n"}, opts, sandbox.DefaultPolicy{})
+
+	for _, script := range []string{
+		`return writeFile("go.sum", "new\n");`,
+		`return editFile("go.sum", "old", "new");`,
+	} {
+		msg := runErr(t, sb, script)
+		if !strings.Contains(msg, "go mod tidy") {
+			t.Errorf("the refusal should carry the caller's reason: %q", msg)
+		}
+	}
+	if len(approver.asked) != 0 {
+		t.Errorf("a refused path should never reach the approver: %v", approver.asked)
+	}
+	assertFile(t, dir, "go.sum", "old\n")
+
+	run(t, sb, `return writeFile("other.txt", "x");`)
+	assertFile(t, dir, "other.txt", "x")
+}
+
+// BeforeWrite sees the path after the change is authorised and before
+// it lands, so what it records is the file as it was.
+func TestBeforeWriteSeesTheFileBeforeTheChange(t *testing.T) {
+	var seen []string
+	var dir string
+	opts := ext.WorkspaceOptions{
+		BeforeWrite: func(_ context.Context, rel string) {
+			data, _ := os.ReadFile(filepath.Join(dir, rel))
+			seen = append(seen, rel+"="+string(data))
+		},
+	}
+	sb, d := workspaceAt(t, map[string]string{"a.txt": "before"}, opts, sandbox.AllowAll)
+	dir = d
+
+	run(t, sb, `editFile("a.txt", "before", "after"); return writeFile("b.txt", "new");`)
+	want := []string{"a.txt=before", "b.txt="}
+	if strings.Join(seen, "|") != strings.Join(want, "|") {
+		t.Errorf("BeforeWrite saw %v, want %v", seen, want)
+	}
+}
+
+// A write that is not authorised does not reach BeforeWrite.
+func TestBeforeWriteSkipsADeniedWrite(t *testing.T) {
+	called := false
+	opts := ext.WorkspaceOptions{BeforeWrite: func(context.Context, string) { called = true }}
+	sb, _ := workspaceAt(t, sampleTree, opts, sandbox.DefaultPolicy{})
+	runErr(t, sb, `return writeFile("new.txt", "x");`)
+	if called {
+		t.Error("BeforeWrite ran for a write the policy denied")
+	}
+}
