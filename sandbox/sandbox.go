@@ -49,6 +49,8 @@ type Sandbox struct {
 	printed      []string              // print() output for the user, across scripts
 	doneCalled   bool                  // done() or exit() was called during this ExecuteTurn
 	doneMessage  string                // the message passed to done() or exit()
+	turnEffects  []string              // file writes and commands this script made; see TurnEffects
+	exitGuard    func() error          // consulted by done()/exit(); see SetExitGuard
 	// console state, scoped to the runtime's lifetime (a turn): counters for
 	// console.count, start times for console.time, and the current group nesting
 	// depth for console.group/groupEnd indentation.
@@ -334,8 +336,12 @@ func (s *Sandbox) SetOnEvent(fn OnEvent) {
 	s.onEvent = fn
 }
 
-// Emit sends an event to the callback if one is registered.
+// Emit sends an event to the callback if one is registered, and
+// records the script's effects for TurnEffects.
 func (s *Sandbox) Emit(evt Event) {
+	if evt.Kind == EventFileWrite || evt.Kind == EventExec {
+		s.turnEffects = append(s.turnEffects, evt.Summary)
+	}
 	if s.onEvent != nil {
 		s.onEvent(evt)
 	}
@@ -363,6 +369,7 @@ func (s *Sandbox) TakeAnswer() (value string, ok bool) {
 // so a malformed exposure doesn't crash the agent goroutine.
 func (s *Sandbox) Execute(code string) (result string, err error) {
 	s.logs = nil
+	s.turnEffects = nil
 	s.answered = false
 	s.answerText = ""
 	s.resetGlobals()
@@ -439,6 +446,7 @@ func nonNilStrings(v []string) []string {
 // (log/answer/emit).
 func (s *Sandbox) ExecuteTurn(code string, argsJSON json.RawMessage) (logs string, ret json.RawMessage, err error) {
 	s.logs = nil
+	s.turnEffects = nil
 	s.answered = false
 	s.doneCalled, s.doneMessage = false, ""
 	s.answerText = ""

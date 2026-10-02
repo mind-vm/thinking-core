@@ -25,6 +25,11 @@ func (s *Sandbox) EnableUserOutput() {
 		return goja.Undefined()
 	})
 	finish := func(call goja.FunctionCall) goja.Value {
+		if s.exitGuard != nil {
+			if err := s.exitGuard(); err != nil {
+				panic(rt.NewGoError(err))
+			}
+		}
 		s.doneCalled = true
 		if len(call.Arguments) > 0 {
 			s.doneMessage = strings.Join(argStrings(call.Arguments), " ")
@@ -51,3 +56,17 @@ func (s *Sandbox) TakeDone() (output string, called bool) {
 	}
 	return strings.Join(parts, "\n"), true
 }
+
+// SetExitGuard installs a check done() and exit() consult before they
+// mark the task finished; an error refuses the call and reaches the
+// model as the exception. Nil removes it.
+//
+// It exists for a finish that should wait: a script that edits a file,
+// runs a check and calls exit() in one breath ends the task on output
+// the model never read. TurnEffects is what a guard usually asks.
+func (s *Sandbox) SetExitGuard(fn func() error) { s.exitGuard = fn }
+
+// TurnEffects lists what the current script has changed or run so far —
+// the summaries of its file_write and exec events — in order. It resets
+// with every Execute and ExecuteTurn.
+func (s *Sandbox) TurnEffects() []string { return append([]string(nil), s.turnEffects...) }
