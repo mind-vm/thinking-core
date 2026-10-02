@@ -681,6 +681,28 @@ Two places take one:
   this a case that happens to trigger a credential-bearing response
   would send it on to the judge and store it in the run.
 
+## Reasoning models and thought signatures
+
+Gemini 3 attaches an opaque `thought_signature` to every reply and needs
+it back on later turns. Without it the model loses its reasoning thread
+and, a few turns into a session, replies with nothing or with a call to a
+function it was never offered. OpenAI-compatible proxies built on LiteLLM
+(Eden among them) carry the signatures in `provider_specific_fields`.
+agentloop keeps them:
+
+- `llm.CompletionResponse.ThoughtSignatures` holds them, streamed or not.
+- The loop puts them on the assistant `llm.Message`, and the OpenAI
+  client sends them back in `provider_specific_fields`, on assistant
+  messages only.
+- They are persisted in the step's `ToolArgs`, so a later `Run`
+  rehydrates them, and stale-code elision keeps them when it replaces an
+  old script's body.
+
+A host that sends no signatures sees no change. The measurement behind
+this is in `labs/codeloop/docs/findings.md` (2026-10-02): with the
+signatures dropped, replayed requests came back empty 7 times in 8; sent
+back, 8 times in 8 they came back as scripts.
+
 ## Known limitations
 
 This is a synchronous, single-process design, not a durable workflow

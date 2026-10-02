@@ -66,7 +66,11 @@ func rehydrateHistory(steps []RunStep, window int) ([]llm.Message, []int32) {
 		if !ok {
 			continue
 		}
-		out = append(out, llm.Message{Role: role, Content: text})
+		msg := llm.Message{Role: role, Content: text}
+		if role == "assistant" {
+			msg.ThoughtSignatures = signaturesFrom(step.ToolArgs)
+		}
+		out = append(out, msg)
 		stepOf = append(stepOf, step.StepIndex)
 	}
 	return out, stepOf
