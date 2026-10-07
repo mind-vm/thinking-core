@@ -17,6 +17,11 @@ import (
 //
 //	raw:  "sandbox: GoError: fetch: dial tcp: i/o timeout at agentloop/sandbox.doFetchRequest.func1 (native)"
 //	out:  "fetch: dial tcp: i/o timeout"
+//
+// stackFrame is the first inline goja frame: " at <sym> (native)",
+// " at <fn> (<eval>:…)" or " at <eval>:l:c(pc)".
+var stackFrame = regexp.MustCompile(` at (\S+ \((native|<eval>[^)]*)\)|<eval>:\d+)`)
+
 func sanitizeErrorForModel(raw string) string {
 	msg := raw
 
@@ -25,13 +30,12 @@ func sanitizeErrorForModel(raw string) string {
 		msg = msg[:i]
 	}
 	// When newlines were flattened, frames trail inline as " at <sym> (native)"
-	// or " at <fn> (<eval>:…)" / " at <eval>:l:c(pc)". Cut from the first such
-	// frame marker; a plain " at " with neither marker is left as real content.
-	if i := strings.Index(msg, " at "); i >= 0 {
-		tail := msg[i:]
-		if strings.Contains(tail, "(native)") || strings.Contains(tail, "<eval>") {
-			msg = msg[:i]
-		}
+	// or " at <fn> (<eval>:…)" / " at <eval>:l:c(pc)". Cut where the first
+	// frame begins — not at the first " at ", which a message may hold
+	// itself ("does not stand at the top of …"): cutting there hid the half
+	// of a refusal that says what is allowed instead.
+	if loc := stackFrame.FindStringIndex(msg); loc != nil {
+		msg = msg[:loc[0]]
 	}
 
 	msg = strings.TrimSpace(msg)

@@ -37,6 +37,16 @@ func TestSanitizeErrorForModel(t *testing.T) {
 			want: "assert: rows.length is required",
 		},
 		{
+			name: "a message holding ' at ' keeps it, up to the frame",
+			in:   "GoError: edit: a Line does not stand at the top of a Quote; there stand (Note | Table | Task) at github.com/x/assist.(*pack).edit-fm (native)",
+			want: "edit: a Line does not stand at the top of a Quote; there stand (Note | Table | Task)",
+		},
+		{
+			name: "an <eval> frame after a message holding ' at '",
+			in:   "Error: look at it first at <eval>:3:1(4)",
+			want: "Error: look at it first",
+		},
+		{
 			name: "a real ' at ' with no frame marker is left as content",
 			in:   "look at this value",
 			want: "look at this value",
