@@ -33,7 +33,10 @@
 // See examples/cli for a complete runnable program with in-memory stores.
 package agentloop
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+)
 
 // Scope is the tenant boundary a run executes under. Every capability's
 // Build receives it and should scope its reads/writes accordingly.
@@ -75,6 +78,13 @@ type RunRequest struct {
 	// persisted as a step — the user turn in the trace stays the raw
 	// Message.
 	Context string
+
+	// InitialArgs is what the first turn's run receives as args, a JSON
+	// object; empty is {}. A host that tells the model what is at hand —
+	// who asks, what is open — and states the contract as "run receives
+	// what you returned" hands it over here, so a model that names it in
+	// run's signature finds it there rather than undefined.
+	InitialArgs json.RawMessage
 
 	// OnEvent receives every observability emission as it happens. Nil
 	// is acceptable — events still land in the step trace.

@@ -64,11 +64,7 @@ func elideStaleCode(history []llm.Message, fromIndex int) []llm.Message {
 		// such as a plan written before the first script, is the model's
 		// reasoning and has nothing in args or the logs to stand in for it.
 		if m.Role == "assistant" && i >= fromIndex && i != lastAssistant && ExtractJSBlock(m.Content) != "" {
-			// The signatures stay: Gemini 3 replies normally to a history
-			// whose old bodies are elided as long as its signatures come
-			// back, and stops replying when they do not (codeloop
-			// findings, 2026-10-02).
-			out[i] = llm.Message{Role: "assistant", Content: staleCodeMarker, ThoughtSignatures: m.ThoughtSignatures}
+			out[i] = llm.Message{Role: "assistant", Content: staleCodeMarker}
 		}
 	}
 	return out

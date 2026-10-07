@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"testing"
 
@@ -547,7 +546,7 @@ func equalMessages(a, b []llm.Message) bool {
 		return false
 	}
 	for i := range a {
-		if a[i].Role != b[i].Role || a[i].Content != b[i].Content || !slices.Equal(a[i].ThoughtSignatures, b[i].ThoughtSignatures) {
+		if a[i] != b[i] {
 			return false
 		}
 	}

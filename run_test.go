@@ -893,3 +893,21 @@ func TestRun_DeclaresOnlyTheFinishItHonours(t *testing.T) {
 		}
 	}
 }
+
+// TestRun_InitialArgsReachTheFirstRun: a host's starting state is the
+// first run's args, so a model that names it in the signature finds it.
+func TestRun_InitialArgsReachTheFirstRun(t *testing.T) {
+	fake := newFakeLLM("fake",
+		llm.CompletionResponse{Content: "```javascript\nfunction run({ open }) { answer(open.doc); }\n```"},
+	)
+	sessions := newMemorySessions()
+	sessions.put("s1", agentloop.Session{ID: "s1"})
+	loop := agentloop.New(agentloop.Config{LLM: fake, Sessions: sessions, Steps: newMemorySteps(), SandboxBuilder: dataBuilder{}})
+	result, err := loop.Run(context.Background(), agentloop.RunRequest{SessionID: "s1", Message: "which?", InitialArgs: json.RawMessage(`{"open":{"doc":"kv-1"}}`)})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if result.FinalText != "kv-1" {
+		t.Errorf("final text: got %q, want %q", result.FinalText, "kv-1")
+	}
+}

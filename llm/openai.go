@@ -314,9 +314,6 @@ func (c *openAIClient) streamChat(ctx context.Context, model string, wire chatRe
 				}
 			}
 			reasoning.WriteString(choice.Delta.thinking())
-			if f := choice.Delta.ProviderSpecificFields; f != nil {
-				out.ThoughtSignatures = append(out.ThoughtSignatures, f.ThoughtSignatures...)
-			}
 			if choice.FinishReason != "" {
 				out.FinishReason = choice.FinishReason
 			}
@@ -376,16 +373,6 @@ type replyMessage struct {
 	Content          string `json:"content"`
 	ReasoningContent string `json:"reasoning_content"`
 	Reasoning        string `json:"reasoning"`
-
-	ProviderSpecificFields *providerFields `json:"provider_specific_fields,omitempty"`
-}
-
-// providerFields is where LiteLLM-style proxies (Eden among them) put
-// what the OpenAI shape has no field for. Gemini 3's thought signatures
-// arrive here and are accepted back in the same place on an assistant
-// message.
-type providerFields struct {
-	ThoughtSignatures []string `json:"thought_signatures,omitempty"`
 }
 
 func (m replyMessage) thinking() string {
@@ -398,8 +385,6 @@ func (m replyMessage) thinking() string {
 type chatMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
-
-	ProviderSpecificFields *providerFields `json:"provider_specific_fields,omitempty"`
 }
 
 type chatResponse struct {
@@ -415,9 +400,6 @@ func (r *chatResponse) fill(out *CompletionResponse) {
 		out.Content = r.Choices[0].Message.Content
 		out.Reasoning = r.Choices[0].Message.thinking()
 		out.FinishReason = r.Choices[0].FinishReason
-		if f := r.Choices[0].Message.ProviderSpecificFields; f != nil {
-			out.ThoughtSignatures = f.ThoughtSignatures
-		}
 	}
 	if r.Usage != nil {
 		r.Usage.fill(out)
@@ -452,13 +434,7 @@ func (e *apiError) Error() string {
 func buildMessages(in []Message) []chatMessage {
 	out := make([]chatMessage, 0, len(in))
 	for _, m := range in {
-		msg := chatMessage{Role: roleFor(m.Role), Content: m.Content}
-		// Only an assistant message carries signatures back; the field
-		// is omitted otherwise, so hosts that do not know it never see it.
-		if msg.Role == "assistant" && len(m.ThoughtSignatures) > 0 {
-			msg.ProviderSpecificFields = &providerFields{ThoughtSignatures: m.ThoughtSignatures}
-		}
-		out = append(out, msg)
+		out = append(out, chatMessage{Role: roleFor(m.Role), Content: m.Content})
 	}
 	return out
 }
