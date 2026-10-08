@@ -31,6 +31,8 @@ type LogEntry struct {
 // lives in the threaded `args` (ExecuteTurn) or chat history, never in
 // stray globals.
 type Sandbox struct {
+	// runLeading names globals passed to run before args (SetRunLeading).
+	runLeading   []string
 	runtime      *goja.Runtime
 	logs         []LogEntry
 	helpEntries  map[string]string
@@ -506,8 +508,17 @@ func (s *Sandbox) ExecuteTurn(code string, argsJSON json.RawMessage) (logs strin
 // closure whose value is run(args) if one was declared, so a bare
 // top-level return threads as args too.
 func (s *Sandbox) wrap(code string) string {
-	return "(function(){\n" + code + "\nif (typeof run === 'function') { return run(args); }\n})()"
+	call := "args"
+	if len(s.runLeading) > 0 {
+		call = strings.Join(s.runLeading, ", ") + ", args"
+	}
+	return "(function(){\n" + code + "\nif (typeof run === 'function') { return run(" + call + "); }\n})()"
 }
+
+// SetRunLeading names globals the sandbox passes to run before args —
+// run($, args) for a host whose API lives in one object $ — so the
+// model's own signature names where the API is, every turn.
+func (s *Sandbox) SetRunLeading(names ...string) { s.runLeading = names }
 
 // DefaultMaxLogBytes caps one turn's log() output when
 // Sandbox.SetMaxLogBytes has not lowered it.
