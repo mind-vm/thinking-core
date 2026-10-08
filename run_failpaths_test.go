@@ -541,3 +541,31 @@ func TestRun_RunTimeoutIsNamed(t *testing.T) {
 		t.Errorf("the cap is not named: err %q, events %q", err, events)
 	}
 }
+
+// The host's own hint comes before the generic one: it knows its names.
+func TestRun_HostRetryHintComesFirst(t *testing.T) {
+	sessions := newMemorySessions()
+	sessions.put("s1", agentloop.Session{ID: "s1"})
+	loop := agentloop.New(agentloop.Config{
+		LLM: newFakeLLM("fake",
+			llm.CompletionResponse{Content: "```js\nopen.id\n```"},
+			llm.CompletionResponse{Content: "DONE\nok"},
+		),
+		Sessions:       sessions,
+		Steps:          newMemorySteps(),
+		SandboxBuilder: emptyBuilder{},
+		RetryHint: func(msg string) string {
+			if strings.Contains(msg, "open is not defined") {
+				return "open is $.open"
+			}
+			return ""
+		},
+	})
+	var events []agentloop.RunEvent
+	if _, err := loop.Run(context.Background(), agentloop.RunRequest{SessionID: "s1", Message: "x", OnEvent: func(e agentloop.RunEvent) { events = append(events, e) }}); err != nil {
+		t.Fatal(err)
+	}
+	if !eventWithContent(events, "execute_js_result", "RETRY HINT: open is $.open") {
+		t.Error("the host's hint was not used")
+	}
+}

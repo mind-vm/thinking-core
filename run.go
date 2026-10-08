@@ -129,6 +129,12 @@ type Config struct {
 	// the figure on the model card.
 	ContextBudget ContextBudget
 
+	// RetryHint, when set, is asked first for the hint that follows a
+	// script's error: the host knows its own API (its names, how they are
+	// called) and the generic hints do not. An empty answer falls back to
+	// them.
+	RetryHint func(errMsg string) string
+
 	// Now is a clock seam for tests. Nil uses time.Now.
 	Now func() time.Time
 
@@ -683,6 +689,9 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 			resultContent = "Error: " + clean
 			if location != "" {
 				resultContent += "\n" + location
+			}
+			if hint == "" && l.cfg.RetryHint != nil {
+				hint = l.cfg.RetryHint(clean)
 			}
 			if hint == "" {
 				hint = retryHintForError(clean)

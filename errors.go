@@ -70,9 +70,9 @@ func retryHintForError(errMsg string) string {
 
 	// ReferenceError / hallucinated APIs.
 	if strings.Contains(lower, "referenceerror") {
-		return "You referenced a function or variable that doesn't exist. All sandbox functions are " +
-			"GLOBAL — no namespace prefix, no this.x — and the declarations under Sandbox API in the " +
-			"system prompt are the complete list."
+		return "You referenced a function or variable that doesn't exist. The declarations under Sandbox API " +
+			"in the system prompt are the complete list: call each exactly as it is declared there, with the " +
+			"prefix it is declared under or none."
 	}
 
 	// TypeError on result properties — usually a shape mismatch.
