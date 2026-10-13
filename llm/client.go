@@ -9,6 +9,15 @@ import "context"
 type Message struct {
 	Role    string // "system", "user", or "assistant"
 	Content string
+
+	// ThoughtSignatures are opaque tokens a reasoning model attached to
+	// an assistant reply (Gemini 3's thought signatures, carried by
+	// OpenAI-compatible proxies in provider_specific_fields). They are
+	// sent back with the message unchanged. Gemini 3 needs them across
+	// turns: without them it loses its reasoning thread, and after a few
+	// turns starts replying with nothing, or with a call to a function
+	// it was never offered.
+	ThoughtSignatures []string
 }
 
 // CompletionRequest is one call to Client.Complete or Client.Stream.
@@ -36,6 +45,10 @@ type CompletionResponse struct {
 	// ReasoningTokens is the part of OutputTokens spent thinking, when
 	// the upstream reports it.
 	ReasoningTokens int
+	// ThoughtSignatures are the reply's opaque reasoning tokens, to be
+	// stored on the assistant Message and sent back; see
+	// Message.ThoughtSignatures.
+	ThoughtSignatures []string
 }
 
 // Client is what the ai()/aiJSON() sandbox capability, and the agent

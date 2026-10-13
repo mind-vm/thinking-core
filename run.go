@@ -586,6 +586,7 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 		})
 
 		replyText := resp.Content
+		sigs := resp.ThoughtSignatures
 
 		// An empty completion (e.g. a reasoning model returning a 0-token
 		// reply on a large prompt) is usually transient. Don't mislabel it
@@ -615,7 +616,7 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 		// the old marker. Checked before JS extraction so an accidental
 		// ```javascript inside the final answer doesn't loop.
 		if done, final := ExtractDoneMarker(replyText); done {
-			return l.respond(req, writeStep, finalize, usage, final), nil, true
+			return l.respond(req, writeStep, finalize, usage, final, sigs), nil, true
 		}
 
 		jsCode := ExtractJSBlock(replyText)
@@ -631,7 +632,7 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 				}
 				l.emit(req.OnEvent, RunEvent{Type: "warning", Content: warning, Args: map[string]any{"reply": replyText}})
 				history = append(history,
-					llm.Message{Role: "assistant", Content: replyText},
+					llm.Message{Role: "assistant", Content: replyText, ThoughtSignatures: sigs},
 					llm.Message{Role: "user", Content: correction},
 				)
 				return RunResult{}, nil, false
@@ -648,7 +649,7 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 			// Model answered directly without a fence or a DONE marker.
 			// Treat the whole reply as the final response rather than
 			// looping pointlessly.
-			return l.respond(req, writeStep, finalize, usage, replyText), nil, true
+			return l.respond(req, writeStep, finalize, usage, replyText, sigs), nil, true
 		}
 
 		// Run the JS. Persist before AND after so the trace shows the
@@ -657,7 +658,7 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 		writeStep(RunStep{
 			StepType: "execute_js",
 			Content:  jsCode,
-			ToolArgs: json.RawMessage(`{}`),
+			ToolArgs: assistantArgs(sigs),
 		})
 		l.emit(req.OnEvent, RunEvent{Type: "execute_js", Content: jsCode})
 
@@ -755,7 +756,7 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 		}
 
 		if doneCalled {
-			return l.respond(req, writeStep, finalize, usage, finalOutput), nil, true
+			return l.respond(req, writeStep, finalize, usage, finalOutput, nil), nil, true
 		}
 
 		// Terminal: answer() inside the script ends the run with its
@@ -782,7 +783,7 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 		}
 
 		history = append(history,
-			llm.Message{Role: "assistant", Content: replyText},
+			llm.Message{Role: "assistant", Content: replyText, ThoughtSignatures: sigs},
 			llm.Message{Role: "user", Content: userTurnContent},
 		)
 		return RunResult{}, nil, false
@@ -817,11 +818,13 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 // respond persists+emits a final response step and finalizes the run —
 // the two direct-answer exits (a DONE marker, or a reply with no code
 // fence) share this rather than repeating the four-event sequence twice.
-func (l *loop) respond(req RunRequest, writeStep func(RunStep), finalize func(string) RunResult, usage *runTokenUsage, text string) RunResult {
+// sigs are the thought signatures of the reply text is, when text is
+// the model's own reply rather than output a script printed.
+func (l *loop) respond(req RunRequest, writeStep func(RunStep), finalize func(string) RunResult, usage *runTokenUsage, text string, sigs []string) RunResult {
 	writeStep(RunStep{
 		StepType:         "response",
 		Content:          text,
-		ToolArgs:         json.RawMessage(`{}`),
+		ToolArgs:         assistantArgs(sigs),
 		PromptTokens:     usage.lastPrompt.Load(),
 		CompletionTokens: usage.lastCompletion.Load(),
 	})
