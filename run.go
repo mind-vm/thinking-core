@@ -135,6 +135,14 @@ type Config struct {
 	// them.
 	RetryHint func(errMsg string) string
 
+	// FinalError, when set, names the script errors that are an answer
+	// rather than a mistake: a refusal the host made on purpose (the user
+	// declined, no one is there to approve). For those the model is given
+	// the error alone, with no retry hint and no "fix and retry" footer, so
+	// the host's "do not retry" is not contradicted. Nil treats every
+	// error as one to fix.
+	FinalError func(errMsg string) bool
+
 	// Now is a clock seam for tests. Nil uses time.Now.
 	Now func() time.Time
 
@@ -691,20 +699,23 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 			if location != "" {
 				resultContent += "\n" + location
 			}
-			if hint == "" && l.cfg.RetryHint != nil {
+			final := l.cfg.FinalError != nil && l.cfg.FinalError(clean)
+			if hint == "" && !final && l.cfg.RetryHint != nil {
 				hint = l.cfg.RetryHint(clean)
 			}
-			if hint == "" {
+			if hint == "" && !final {
 				hint = retryHintForError(clean)
 			}
-			if hint != "" {
+			if hint != "" && !final {
 				resultContent += "\n\nRETRY HINT: " + hint
 			}
-			if clean == lastError {
+			if clean == lastError && !final {
 				resultContent += "\n\nThis is the same error as your previous script. Change the approach instead of retrying the same code."
 			}
 			lastError = clean
-			resultContent += "\n(args from the previous turn are preserved — fix and retry.)"
+			if !final {
+				resultContent += "\n(args from the previous turn are preserved — fix and retry.)"
+			}
 		} else {
 			lastError = ""
 			prevArgs = ret // thread full-fidelity return into next turn's args
