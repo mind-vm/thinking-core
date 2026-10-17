@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/dop251/goja"
 )
@@ -517,18 +518,8 @@ func (s *Sandbox) wrap(code string) string {
 
 // SetRunLeading names globals the sandbox passes to run before args —
 // run($, args) for a host whose API lives in one object $ — so the
-// model's own signature names where the API is, every turn. The named
-// globals survive the reset between turns like a pack's, also when the
-// host sets them after New.
-func (s *Sandbox) SetRunLeading(names ...string) {
-	s.runLeading = names
-	if s.baseKeys == nil {
-		s.baseKeys = map[string]struct{}{}
-	}
-	for _, n := range names {
-		s.baseKeys[n] = struct{}{}
-	}
-}
+// model's own signature names where the API is, every turn.
+func (s *Sandbox) SetRunLeading(names ...string) { s.runLeading = names }
 
 // DefaultMaxLogBytes caps one turn's log() output when
 // Sandbox.SetMaxLogBytes has not lowered it.
@@ -568,9 +559,19 @@ func truncateLogs(out string, max int) string {
 	}
 	head := max * 3 / 4
 	tail := max - head
-	return out[:head] +
-		fmt.Sprintf("\n... (%d bytes of log output omitted — log selectively, or return data instead) ...\n", len(out)-max) +
-		out[len(out)-tail:]
+	// Cut on rune boundaries: a byte cut inside a multi-byte character (an umlaut in German
+	// text) hands the model invalid UTF-8.
+	h := head
+	for h > 0 && !utf8.RuneStart(out[h]) {
+		h--
+	}
+	t := len(out) - tail
+	for t < len(out) && !utf8.RuneStart(out[t]) {
+		t++
+	}
+	return out[:h] +
+		fmt.Sprintf("\n... (%d bytes of log output omitted — log selectively, or return data instead) ...\n", t-h) +
+		out[t:]
 }
 
 // exportJSON marshals a returned Goja value to JSON, or nil for
