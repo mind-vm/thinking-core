@@ -17,7 +17,7 @@ func TestReasoningAndFinishReasonAreCaptured(t *testing.T) {
 		"data: {\"choices\":[{\"delta\":{\"content\":\"hi\"},\"finish_reason\":\"length\"}]}\n\n" +
 		"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":30,\"completion_tokens_details\":{\"reasoning_tokens\":28}}}\n\n" +
 		"data: [DONE]\n\n"
-	complete := `{"choices":[{"message":{"content":"","reasoning":"hidden plan"},"finish_reason":"content_filter"}],"usage":{"prompt_tokens":3,"completion_tokens":4}}`
+	complete := `{"choices":[{"message":{"content":"","reasoning":"hidden plan"},"finish_reason":"content_filter"}],"usage":{"prompt_tokens":3,"completion_tokens":4,"prompt_tokens_details":{"cached_tokens":2}}}`
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -44,7 +44,7 @@ func TestReasoningAndFinishReasonAreCaptured(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Reasoning != "hidden plan" || got.FinishReason != "content_filter" || got.ReasoningTokens != 0 {
+	if got.Reasoning != "hidden plan" || got.FinishReason != "content_filter" || got.ReasoningTokens != 0 || got.CachedTokens != 2 {
 		t.Errorf("complete = %+v", got)
 	}
 }

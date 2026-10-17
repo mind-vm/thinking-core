@@ -430,6 +430,9 @@ type usage struct {
 	CompletionTokensDetails *struct {
 		ReasoningTokens int `json:"reasoning_tokens"`
 	} `json:"completion_tokens_details"`
+	PromptTokensDetails *struct {
+		CachedTokens int `json:"cached_tokens"`
+	} `json:"prompt_tokens_details"`
 }
 
 func (u *usage) fill(out *CompletionResponse) {
@@ -437,6 +440,9 @@ func (u *usage) fill(out *CompletionResponse) {
 	out.OutputTokens = u.CompletionTokens
 	if u.CompletionTokensDetails != nil {
 		out.ReasoningTokens = u.CompletionTokensDetails.ReasoningTokens
+	}
+	if u.PromptTokensDetails != nil {
+		out.CachedTokens = u.PromptTokensDetails.CachedTokens
 	}
 }
 

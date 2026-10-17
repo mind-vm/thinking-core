@@ -45,6 +45,9 @@ type CompletionResponse struct {
 	// ReasoningTokens is the part of OutputTokens spent thinking, when
 	// the upstream reports it.
 	ReasoningTokens int
+	// CachedTokens is the part of InputTokens the upstream served from
+	// its prompt cache (billed at a lower rate), when it reports it.
+	CachedTokens int
 	// ThoughtSignatures are the reply's opaque reasoning tokens, to be
 	// stored on the assistant Message and sent back; see
 	// Message.ThoughtSignatures.
