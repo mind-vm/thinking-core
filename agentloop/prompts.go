@@ -15,6 +15,11 @@ import "strings"
 // listings come from the packs via sandbox.Sandbox.SystemPrompt() and
 // are appended under "## Sandbox API".
 //
+// "Exactly one block and nothing else, then stop" is the one guard the
+// short prompt keeps: without it gemini-3.5-flash-lite returned an empty
+// reply or wrote the sandbox's output itself (down to an invented
+// answer()) in 12 of 24 first turns; with it, 24 of 24 were clean.
+//
 // The runtime line is empirically grounded: goja parses Promise/async
 // code and then its continuations silently never run, so the prompt
 // rules them out rather than leaving the model to find out.
@@ -32,7 +37,7 @@ func textEmissionPrompt(userOutput bool) string {
 	return strings.Replace(textEmissionTemplate, "{{finish}}", finish, 1)
 }
 
-const textEmissionTemplate = "You solve tasks by writing JavaScript. Reply with one ```javascript block; it runs in a sandbox, and you see what it logs. Continue with the next block until {{finish}}.\n\n" +
+const textEmissionTemplate = "You solve tasks by writing JavaScript. Reply with exactly one ```javascript block and nothing else, then stop: it runs in a sandbox, and what it logs comes back to you as the next message. Continue like that until {{finish}}.\n\n" +
 	"- `state` is an object that persists between your scripts. Keep data there; you are shown its shape, not its values.\n" +
 	"- log() what you need to read yourself: counts, names, small samples, not whole datasets.\n" +
 	"- The runtime is synchronous: no await or Promises, no Node or browser APIs. The functions declared below are all there is."
