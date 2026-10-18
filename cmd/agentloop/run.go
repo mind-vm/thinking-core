@@ -12,7 +12,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/mind-vm/agentloop"
+	"github.com/mind-vm/thinking-core/agentloop"
 )
 
 // cmdRun executes exactly one turn and exits with a code describing how

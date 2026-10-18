@@ -10,8 +10,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/mind-vm/agentloop/agentloopsql"
-	"github.com/mind-vm/agentloop/sandbox"
+	"github.com/mind-vm/thinking-core/agentloopsql"
+	"github.com/mind-vm/thinking-core/sandbox"
 )
 
 // approvalMode decides what happens when a capability asks permission.

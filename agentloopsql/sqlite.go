@@ -11,7 +11,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/mind-vm/agentloop"
+	"github.com/mind-vm/thinking-core/agentloop"
 )
 
 // timeLayout is how instants are written. RFC3339 with nanoseconds

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mind-vm/agentloop/agentloopsql"
-	"github.com/mind-vm/agentloop/sandbox"
+	"github.com/mind-vm/thinking-core/agentloopsql"
+	"github.com/mind-vm/thinking-core/sandbox"
 )
 
 func TestResolveApprovalMode(t *testing.T) {

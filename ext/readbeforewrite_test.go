@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mind-vm/agentloop/ext"
+	"github.com/mind-vm/thinking-core/ext"
 )
 
 // Under RequireReadBeforeWrite an edit of a file the run has not read is

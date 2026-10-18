@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mind-vm/agentloop/llm"
+	"github.com/mind-vm/thinking-core/llm"
 )
 
 // TestElideStaleCode_PreservesPriorConversationVerbatim locks in a real

@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mind-vm/agentloop"
-	"github.com/mind-vm/agentloop/sandbox"
-	"github.com/mind-vm/agentloop/skills"
+	"github.com/mind-vm/thinking-core/agentloop"
+	"github.com/mind-vm/thinking-core/sandbox"
+	"github.com/mind-vm/thinking-core/skills"
 )
 
 // buildSandbox wires discovered skills through the same builder an

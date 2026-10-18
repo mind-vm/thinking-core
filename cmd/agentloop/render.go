@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/mind-vm/agentloop"
+	"github.com/mind-vm/thinking-core/agentloop"
 )
 
 // renderer is the output shape for one invocation. Subcommands drive

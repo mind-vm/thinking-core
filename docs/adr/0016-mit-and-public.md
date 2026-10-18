@@ -87,4 +87,4 @@ site down a second time.
 - 2026-10-18 — Public again as its own repository, with the monorepo history of
   `libs/agentloop` replayed on top of this one. The reasoning above held: keeping
   it private protected nothing specific to agentloop, and the monorepo consumed
-  it as `github.com/mind-vm/agentloop` throughout.
+  it as `github.com/mind-vm/thinking-core` throughout.

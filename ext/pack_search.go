@@ -5,7 +5,7 @@ import (
 
 	"github.com/dop251/goja"
 
-	"github.com/mind-vm/agentloop/sandbox"
+	"github.com/mind-vm/thinking-core/sandbox"
 )
 
 // SearchHit is one semantic-search result surfaced to the sandbox. The

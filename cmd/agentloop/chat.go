@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/mind-vm/agentloop"
+	"github.com/mind-vm/thinking-core/agentloop"
 )
 
 // cmdChat runs turns interactively against one session. Because every

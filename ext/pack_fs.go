@@ -9,7 +9,7 @@ import (
 
 	"github.com/dop251/goja"
 
-	"github.com/mind-vm/agentloop/sandbox"
+	"github.com/mind-vm/thinking-core/sandbox"
 )
 
 // WorkspaceOptions tunes WorkspacePack. The zero value is usable: every

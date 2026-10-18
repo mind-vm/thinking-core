@@ -26,7 +26,7 @@ The reasoning loop is the differentiated part; none of that plumbing is.
 
 ## Decision
 
-agentloop is a **standalone Go module** — `github.com/mind-vm/agentloop` — that
+agentloop is a **standalone Go module** — `github.com/mind-vm/thinking-core` — that
 depends on no application framework and no application schema.
 
 - **Nothing host-specific in the core.** The extraction dropped mybrain's
@@ -80,7 +80,7 @@ and it has already been renamed once (`jryannel` → `mind-vm`, 2026-08-25).
 
 - 2026-08-21 — Extracted from mybrain as a standalone module.
 - 2026-08-25 — Module path moved from `github.com/jryannel/agentloop` to
-  `github.com/mind-vm/agentloop`.
+  `github.com/mind-vm/thinking-core`.
 - 2026-08-28 — Recorded retroactively.
 - 2026-08-28 — `cmd/agentloop` shipped with a release pipeline, giving the
   library its first consumer and the *Consumers* line something other than

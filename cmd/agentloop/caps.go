@@ -4,10 +4,10 @@ import (
 	"os"
 	"slices"
 
-	"github.com/mind-vm/agentloop"
-	"github.com/mind-vm/agentloop/ext"
-	"github.com/mind-vm/agentloop/llm"
-	"github.com/mind-vm/agentloop/sandbox"
+	"github.com/mind-vm/thinking-core/agentloop"
+	"github.com/mind-vm/thinking-core/ext"
+	"github.com/mind-vm/thinking-core/llm"
+	"github.com/mind-vm/thinking-core/sandbox"
 )
 
 // networkCapabilities are the capabilities --no-network removes.

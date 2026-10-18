@@ -3,7 +3,7 @@ package agentloop
 import (
 	"strings"
 
-	"github.com/mind-vm/agentloop/llm"
+	"github.com/mind-vm/thinking-core/llm"
 )
 
 // HistoryWindow is the default cap on how many prior steps the loop

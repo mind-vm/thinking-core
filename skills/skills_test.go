@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mind-vm/agentloop"
+	"github.com/mind-vm/thinking-core/agentloop"
 )
 
 // project builds a throwaway checkout with a .git marker and returns

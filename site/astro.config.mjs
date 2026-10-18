@@ -17,7 +17,7 @@ export default defineConfig({
   base,
   integrations: [
     starlight({
-      title: "agentloop",
+      title: "thinking-core",
       description:
         "A small Go engine for LLM agents that think by writing JavaScript " +
         "instead of calling named tools.",
@@ -36,10 +36,10 @@ export default defineConfig({
       // including /404 itself. A 404 page you cannot look at while working on
       // it is worse than a line in the build log.
       social: [
-        { icon: "github", label: "GitHub", href: "https://github.com/mind-vm/agentloop" },
+        { icon: "github", label: "GitHub", href: "https://github.com/mind-vm/thinking-core" },
       ],
       editLink: {
-        baseUrl: "https://github.com/mind-vm/agentloop/edit/main/site/",
+        baseUrl: "https://github.com/mind-vm/thinking-core/edit/main/site/",
       },
       // Five groups, in the order a reader meets them: how to get running
       // (Start here), how to drive it from a terminal (The CLI), why
@@ -68,12 +68,12 @@ export default defineConfig({
             { autogenerate: { directory: "reference" } },
             {
               label: "API reference (pkg.go.dev)",
-              link: "https://pkg.go.dev/github.com/mind-vm/agentloop",
+              link: "https://pkg.go.dev/github.com/mind-vm/thinking-core",
               attrs: { target: "_blank" },
             },
             {
               label: "Source on GitHub",
-              link: "https://github.com/mind-vm/agentloop",
+              link: "https://github.com/mind-vm/thinking-core",
               attrs: { target: "_blank" },
             },
           ],
@@ -82,7 +82,7 @@ export default defineConfig({
     }),
   ],
   // Content links are written without the deployment prefix — `/concepts/`,
-  // not `/agentloop/concepts/` — and this adds it at build time from the one
+  // not `/thinking-core/concepts/` — and this adds it at build time from the one
   // place `base` is defined. See rehype-base-links.mjs for what it does and
   // does not cover.
   //

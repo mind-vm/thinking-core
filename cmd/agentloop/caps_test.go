@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mind-vm/agentloop"
-	"github.com/mind-vm/agentloop/sandbox"
+	"github.com/mind-vm/thinking-core/agentloop"
+	"github.com/mind-vm/thinking-core/sandbox"
 )
 
 // askSandbox builds the CLI's capability slice around p and returns a

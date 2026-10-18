@@ -1,6 +1,6 @@
 package agentloop
 
-import "github.com/mind-vm/agentloop/sandbox"
+import "github.com/mind-vm/thinking-core/sandbox"
 
 // A model's context window sets four separate limits that the rest of
 // this package exposes as unrelated knobs, in three different units:

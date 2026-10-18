@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mind-vm/agentloop"
-	"github.com/mind-vm/agentloop/agentloopmem"
-	"github.com/mind-vm/agentloop/llm"
-	"github.com/mind-vm/agentloop/sandbox"
+	"github.com/mind-vm/thinking-core/agentloop"
+	"github.com/mind-vm/thinking-core/agentloopmem"
+	"github.com/mind-vm/thinking-core/llm"
+	"github.com/mind-vm/thinking-core/sandbox"
 )
 
 // stubClient is an llm.Client that is never called — loopConfig only

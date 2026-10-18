@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/mind-vm/agentloop/llm"
+	"github.com/mind-vm/thinking-core/llm"
 )
 
 // StepTypeSummary marks a compaction checkpoint in a session's step

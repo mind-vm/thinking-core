@@ -1,7 +1,7 @@
 // Package chrome drives a real Chrome through the Chrome DevTools
 // Protocol and implements browser.Driver.
 //
-// It is a module of its own — github.com/mind-vm/agentloop/browser/chrome
+// It is a module of its own — github.com/mind-vm/thinking-core/browser/chrome
 // — because chromedp and cdproto together are larger than the whole of
 // agentloop, and a deployment that never opens a browser should not
 // carry them. A replace directive keeps it buildable from a checkout;

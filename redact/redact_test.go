@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mind-vm/agentloop/redact"
+	"github.com/mind-vm/thinking-core/redact"
 )
 
 func TestRedactor_NilSafe(t *testing.T) {

@@ -9,9 +9,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/mind-vm/agentloop"
-	"github.com/mind-vm/agentloop/llm"
-	"github.com/mind-vm/agentloop/sandbox"
+	"github.com/mind-vm/thinking-core/agentloop"
+	"github.com/mind-vm/thinking-core/llm"
+	"github.com/mind-vm/thinking-core/sandbox"
 )
 
 // TestRun_DoneOnFirstTurn drives the simplest happy path: the LLM

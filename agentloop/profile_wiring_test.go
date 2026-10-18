@@ -3,8 +3,8 @@ package agentloop_test
 import (
 	"testing"
 
-	"github.com/mind-vm/agentloop"
-	"github.com/mind-vm/agentloop/llm"
+	"github.com/mind-vm/thinking-core/agentloop"
+	"github.com/mind-vm/thinking-core/llm"
 )
 
 // A derived profile must survive New's own validation — a Reserve that

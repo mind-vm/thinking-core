@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mind-vm/agentloop"
-	"github.com/mind-vm/agentloop/agentloopsql"
+	"github.com/mind-vm/thinking-core/agentloop"
+	"github.com/mind-vm/thinking-core/agentloopsql"
 )
 
 func TestExitCodeFor(t *testing.T) {

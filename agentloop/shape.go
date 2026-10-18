@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/mind-vm/agentloop/llm"
+	"github.com/mind-vm/thinking-core/llm"
 )
 
 // staleCodeMarker replaces the body of an already-executed run() in the

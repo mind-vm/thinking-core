@@ -1,15 +1,20 @@
-# agentloop
+# thinking-core
 
 A small Go engine for LLM agents that think by writing JavaScript instead of
-calling named tools.
+calling named tools. (Its loop package is `agentloop`, which was also the
+repository's name until 2026-10.)
 
-Each turn the model emits one fenced ` ```javascript ` block defining
-`function run(args) { ... }`. agentloop executes it in a sandboxed
-[goja](https://github.com/dop251/goja) runtime and threads its return value
-into the next turn as `args` — full fidelity, server-side, never
-re-serialised into the prompt. The model sees only its own `log()` output
-plus a compact structural digest of what it returned. A run finishes when
-the script calls `answer(result)`.
+Each turn the model emits one fenced ` ```javascript ` block. thinking-core
+executes it in a sandboxed [goja](https://github.com/dop251/goja) runtime.
+The script keeps data by assigning to `state` (or, in the original contract,
+by implementing `function run(args)` and returning it); that value is threaded
+into the next turn — full fidelity, server-side, never re-serialised into the
+prompt. The model sees only its own `log()` output plus a compact structural
+digest of what it kept. A run finishes when the script calls `answer(result)`.
+
+```bash
+go get github.com/mind-vm/thinking-core
+```
 
 This return-threading design keeps the prompt small even for many-step
 runs: stale code is elided from history (only the most recent turn's script
@@ -66,7 +71,7 @@ is kept verbatim) and large data never appears in the context window twice.
   selector or a pixel coordinate. Optional vision (`ask` / `askMarks`)
   arrives as a callback, same decoupling `ext` uses. Every primitive
   goes through a ten-method `Driver`; the chromedp implementation is
-  a *separate module*, `github.com/mind-vm/agentloop/browser/chrome`,
+  a *separate module*, `github.com/mind-vm/thinking-core/browser/chrome`,
   so chromedp and cdproto stay off the dependency list of every
   deployment that never opens a browser.
 - **`pool`** — `SandboxPool`, a `SandboxBuilder` that reuses one
@@ -165,7 +170,7 @@ loop := agentloop.New(agentloop.Config{ /* … */ Plain: true})
 default capability bundle, and runs turns:
 
 ```sh
-go install github.com/mind-vm/agentloop/cmd/agentloop@latest
+go install github.com/mind-vm/thinking-core/cmd/agentloop@latest
 
 agentloop "What's 12 * 7? Reply with just the number."
 agentloop chat

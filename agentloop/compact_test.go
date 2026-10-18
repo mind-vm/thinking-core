@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mind-vm/agentloop/llm"
+	"github.com/mind-vm/thinking-core/llm"
 )
 
 // stubSummarizer is a minimal llm.Client for compaction tests: it

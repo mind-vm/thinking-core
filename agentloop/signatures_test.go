@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mind-vm/agentloop"
-	"github.com/mind-vm/agentloop/llm"
+	"github.com/mind-vm/thinking-core/agentloop"
+	"github.com/mind-vm/thinking-core/llm"
 )
 
 // A reply's thought signatures go back with it on every later call: in

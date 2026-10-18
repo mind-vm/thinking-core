@@ -3,7 +3,7 @@ package agentloop
 import (
 	"fmt"
 
-	"github.com/mind-vm/agentloop/llm"
+	"github.com/mind-vm/thinking-core/llm"
 )
 
 // Everything else in this package bounds the prompt by COUNTING

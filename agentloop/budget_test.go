@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mind-vm/agentloop/llm"
+	"github.com/mind-vm/thinking-core/llm"
 )
 
 // msg builds a message whose content is n bytes, so a test can state

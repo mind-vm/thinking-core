@@ -133,9 +133,9 @@ import (
     "net/http"
     "time"
 
-    "github.com/mind-vm/agentloop"
-    "github.com/mind-vm/agentloop/agentloopmem"
-    "github.com/mind-vm/agentloop/llm"
+    "github.com/mind-vm/thinking-core/agentloop"
+    "github.com/mind-vm/thinking-core/agentloopmem"
+    "github.com/mind-vm/thinking-core/llm"
 )
 
 func main() {

@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/mind-vm/agentloop/llm"
-	"github.com/mind-vm/agentloop/sandbox"
+	"github.com/mind-vm/thinking-core/llm"
+	"github.com/mind-vm/thinking-core/sandbox"
 )
 
 func TestProfileForUnknownWindowChangesNothing(t *testing.T) {

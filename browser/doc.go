@@ -7,7 +7,7 @@
 // The package holds no browser dependency of its own. Everything here
 // talks to a [Driver], a ten-method seam an implementation satisfies;
 // the chromedp-backed one lives in the sibling module
-// github.com/mind-vm/agentloop/browser/chrome, which is a separate Go
+// github.com/mind-vm/thinking-core/browser/chrome, which is a separate Go
 // module precisely so agentloop's own dependency set stays small for
 // the deployments that never open a browser.
 //

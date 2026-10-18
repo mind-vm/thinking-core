@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mind-vm/agentloop/browser"
-	"github.com/mind-vm/agentloop/browser/chrome"
+	"github.com/mind-vm/thinking-core/browser"
+	"github.com/mind-vm/thinking-core/browser/chrome"
 )
 
 // Chrome must satisfy the Driver seam. This assertion is the reason the

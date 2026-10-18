@@ -7,7 +7,7 @@ import (
 
 	"github.com/dop251/goja"
 
-	"github.com/mind-vm/agentloop/sandbox"
+	"github.com/mind-vm/thinking-core/sandbox"
 )
 
 // maxSleep caps browser.sleep(). A script that wants to wait longer

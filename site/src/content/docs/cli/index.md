@@ -10,7 +10,7 @@ sidebar:
 and runs turns against any OpenAI-wire-compatible endpoint.
 
 ```sh
-go install github.com/mind-vm/agentloop/cmd/agentloop@latest
+go install github.com/mind-vm/thinking-core/cmd/agentloop@latest
 
 export OPENAI_API_KEY=sk-...
 agentloop "What's 12 * 7? Reply with just the number."

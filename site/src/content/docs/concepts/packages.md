@@ -85,13 +85,13 @@ callback, so the package pulls in no model client.
 
 Everything here talks to a ten-method `Driver`. The chromedp
 implementation is a **separate module**,
-`github.com/mind-vm/agentloop/browser/chrome`, so that chromedp and cdproto
+`github.com/mind-vm/thinking-core/browser/chrome`, so that chromedp and cdproto
 stay off the dependency list of every deployment that never opens a
 browser. Navigation is policy-gated under tool name `browser` — the same
 URL rules `DefaultPolicy` applies to `fetch`.
 
 ```bash
-go get github.com/mind-vm/agentloop/browser/chrome
+go get github.com/mind-vm/thinking-core/browser/chrome
 ```
 
 ## `projectctx`

@@ -1,11 +1,11 @@
-module github.com/mind-vm/agentloop/browser/chrome
+module github.com/mind-vm/thinking-core/browser/chrome
 
 go 1.26.0
 
 require (
 	github.com/chromedp/cdproto v0.0.0-20260804232424-e85f50dbfd32
 	github.com/chromedp/chromedp v0.16.0
-	github.com/mind-vm/agentloop v0.4.0
+	github.com/mind-vm/thinking-core v0.5.0
 )
 
 require (
@@ -34,4 +34,4 @@ require (
 // inside this directory. Consumers ignore it and resolve the require
 // above, which has to name a published release that actually contains
 // the browser package. v0.4.0 is the first that does.
-replace github.com/mind-vm/agentloop => ../..
+replace github.com/mind-vm/thinking-core => ../..

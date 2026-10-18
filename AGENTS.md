@@ -1,4 +1,4 @@
-# Working in agentloop
+# Working in thinking-core
 
 A Go engine for LLM agents that think by writing JavaScript. The README's
 package list is the map; this file is the part the code does not tell you.

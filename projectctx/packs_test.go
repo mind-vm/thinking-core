@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mind-vm/agentloop"
-	"github.com/mind-vm/agentloop/sandbox"
+	"github.com/mind-vm/thinking-core/agentloop"
+	"github.com/mind-vm/thinking-core/sandbox"
 )
 
 // bigDoc is a body large enough that the default inline bound excerpts

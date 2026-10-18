@@ -17,11 +17,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/mind-vm/agentloop"
-	"github.com/mind-vm/agentloop/agentloopmem"
-	"github.com/mind-vm/agentloop/llm"
-	"github.com/mind-vm/agentloop/projectctx"
-	"github.com/mind-vm/agentloop/skills"
+	"github.com/mind-vm/thinking-core/agentloop"
+	"github.com/mind-vm/thinking-core/agentloopmem"
+	"github.com/mind-vm/thinking-core/llm"
+	"github.com/mind-vm/thinking-core/projectctx"
+	"github.com/mind-vm/thinking-core/skills"
 )
 
 func main() {

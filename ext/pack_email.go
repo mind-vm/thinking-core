@@ -7,7 +7,7 @@ import (
 
 	"github.com/dop251/goja"
 
-	"github.com/mind-vm/agentloop/sandbox"
+	"github.com/mind-vm/thinking-core/sandbox"
 )
 
 // EmailPack exposes a synchronous `sendEmail({to, subject, body})`

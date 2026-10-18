@@ -8,9 +8,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/mind-vm/agentloop"
-	"github.com/mind-vm/agentloop/llm"
-	"github.com/mind-vm/agentloop/redact"
+	"github.com/mind-vm/thinking-core/agentloop"
+	"github.com/mind-vm/thinking-core/llm"
+	"github.com/mind-vm/thinking-core/redact"
 )
 
 // Service is the eval-harness entry point. CRUD methods are thin

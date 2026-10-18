@@ -17,13 +17,13 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/mind-vm/agentloop"
-	"github.com/mind-vm/agentloop/agentloopmem"
-	"github.com/mind-vm/agentloop/agentloopsql"
-	"github.com/mind-vm/agentloop/llm"
-	"github.com/mind-vm/agentloop/projectctx"
-	"github.com/mind-vm/agentloop/sandbox"
-	"github.com/mind-vm/agentloop/skills"
+	"github.com/mind-vm/thinking-core/agentloop"
+	"github.com/mind-vm/thinking-core/agentloopmem"
+	"github.com/mind-vm/thinking-core/agentloopsql"
+	"github.com/mind-vm/thinking-core/llm"
+	"github.com/mind-vm/thinking-core/projectctx"
+	"github.com/mind-vm/thinking-core/sandbox"
+	"github.com/mind-vm/thinking-core/skills"
 )
 
 // options is one invocation's resolved configuration. Every field maps

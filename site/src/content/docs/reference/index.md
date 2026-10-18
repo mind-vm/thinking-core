@@ -29,13 +29,13 @@ window](/concepts/context/).
 ## API reference
 
 The full API reference is the Go doc comments, on
-[pkg.go.dev](https://pkg.go.dev/github.com/mind-vm/agentloop).
+[pkg.go.dev](https://pkg.go.dev/github.com/mind-vm/thinking-core).
 
 ## Source
 
-[github.com/mind-vm/agentloop](https://github.com/mind-vm/agentloop)
+[github.com/mind-vm/thinking-core](https://github.com/mind-vm/thinking-core)
 
 ## License
 
 MIT — see
-[LICENSE](https://github.com/mind-vm/agentloop/blob/main/LICENSE).
+[LICENSE](https://github.com/mind-vm/thinking-core/blob/main/LICENSE).

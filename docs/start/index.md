@@ -9,7 +9,7 @@ sidebar:
 ## Install
 
 ```sh
-go get github.com/mind-vm/agentloop
+go get github.com/mind-vm/thinking-core
 ```
 
 ## Wire up a loop
@@ -41,7 +41,7 @@ result, err := loop.Run(ctx, agentloop.RunRequest{
 
 ## Run the example
 
-[`examples/cli`](https://github.com/mind-vm/agentloop/tree/main/examples/cli)
+[`examples/cli`](https://github.com/mind-vm/thinking-core/tree/main/examples/cli)
 is a complete runnable program with in-memory stores:
 
 ```sh

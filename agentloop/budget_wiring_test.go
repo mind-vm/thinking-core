@@ -7,8 +7,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/mind-vm/agentloop"
-	"github.com/mind-vm/agentloop/llm"
+	"github.com/mind-vm/thinking-core/agentloop"
+	"github.com/mind-vm/thinking-core/llm"
 )
 
 // seedBulkHistory writes prior turns large enough that a small budget
