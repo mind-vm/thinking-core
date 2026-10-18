@@ -1,0 +1,74 @@
+# Builds and publishes CLI binaries when a version tag is pushed.
+#
+# A previous workflow of this name was removed because it did not do this:
+# it triggered on v* tags and then only ran build, vet and test, producing
+# no release at all. That work now lives in ci.yml, where it belongs — on
+# every push — and this one publishes.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  # A manual run has to say which tag it is publishing. GitHub will let you
+  # dispatch from a branch, and a branch is not a release: without this the
+  # run would reach for the nearest tag it could see and build that instead.
+  # Asking outright is one field, and it is the field the whole job is about.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish, e.g. v0.4.1. Must already exist."
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # GoReleaser derives the changelog from history, which a shallow
+          # clone does not have.
+          fetch-depth: 0
+          # On a tag push these are the same thing. On a manual run they are
+          # not: github.ref is whatever was dispatched from, so build the tag
+          # that was named instead.
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # ci.yml gates every push, but a tag can be placed on any commit,
+      # including one that never went through a pull request. Re-running the
+      # suite here is a few seconds against publishing a broken binary under
+      # a version number that cannot be taken back.
+      - name: Test
+        run: go test ./...
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Left to itself GoReleaser infers the version from the nearest
+          # reachable tag, and this repository has tags that are not releases
+          # of this command: browser/chrome carries its own, because a Go
+          # submodule has to. A dry run from main duly set about building
+          # `agentloop_browser/chrome/v0.4.0_linux_amd64.tar.gz`.
+          #
+          # The inference does not prefer a version tag over any other kind.
+          # It sorts by refname: a tag `zzz` on the release commit beats
+          # `v8.8.8` there. That `v0.5.0` would beat `browser/chrome/v0.5.0`
+          # on one commit is alphabetical luck, not a rule to rely on.
+          #
+          # Naming the ref removes the guess. On a manual run that is the
+          # tag input; on a tag push, the ref that triggered it. Name a
+          # branch either way and validate stops the run — `git tag main was
+          # not made against commit <sha>` — rather than publishing it
+          # misnamed.
+          GORELEASER_CURRENT_TAG: ${{ inputs.tag || github.ref_name }}

@@ -132,7 +132,7 @@ it bears on.
 | [0013](0013-context-control-from-one-number.md) | Three units of context control, derived from one number | Working | Medium |
 | [0014](0014-retrieval-over-inlining.md) | Retrieval over inlining for project instructions and skills | Working | Medium |
 | [0015](0015-observability-seams.md) | Observability is a seam, and off unless wired | Working | Medium |
-| [0016](0016-mit-and-public.md) | MIT and public | Replaced by [platform ADR-0001](../../../docs/adr/0001-private-and-proprietary.md) | High |
+| [0016](0016-mit-and-public.md) | MIT and public | Working | High |
 
 ## Lineage
 
