@@ -518,8 +518,18 @@ func (s *Sandbox) wrap(code string) string {
 
 // SetRunLeading names globals the sandbox passes to run before args —
 // run($, args) for a host whose API lives in one object $ — so the
-// model's own signature names where the API is, every turn.
-func (s *Sandbox) SetRunLeading(names ...string) { s.runLeading = names }
+// model's own signature names where the API is, every turn. The named
+// globals survive the reset between turns like a pack's, also when the
+// host sets them after New.
+func (s *Sandbox) SetRunLeading(names ...string) {
+	s.runLeading = names
+	if s.baseKeys == nil {
+		s.baseKeys = map[string]struct{}{}
+	}
+	for _, n := range names {
+		s.baseKeys[n] = struct{}{}
+	}
+}
 
 // DefaultMaxLogBytes caps one turn's log() output when
 // Sandbox.SetMaxLogBytes has not lowered it.
