@@ -84,7 +84,7 @@ func TestRun_DoneOnFirstTurn(t *testing.T) {
 // final text.
 func TestRun_TwoTurns_JSThenDone(t *testing.T) {
 	fake := newFakeLLM("fake",
-		llm.CompletionResponse{Content: "```javascript\nfunction run(args) { return { x: 1 }; }\n```", InputTokens: 4, OutputTokens: 2},
+		llm.CompletionResponse{Content: "```javascript\nstate.x = 1;\n```", InputTokens: 4, OutputTokens: 2},
 		llm.CompletionResponse{Content: "DONE\nDid it.", InputTokens: 7, OutputTokens: 1},
 	)
 	sessions := newMemorySessions()
@@ -294,7 +294,7 @@ func TestRun_RequireScript_NamesTheToolCall(t *testing.T) {
 // the elided-script marker is not run as a no-op turn; the model is told
 // what it copied and asked for the next script.
 func TestRun_RequireScript_CorrectsACopiedPlaceholder(t *testing.T) {
-	copied := "```javascript\nfunction run(args) {\n  // earlier turn, body omitted: its logs are in the next message and its return value is in args\n  return args;\n}\n```"
+	copied := "```javascript\n// earlier turn, body omitted: its logs are in the next message and what it kept is in state\n```"
 	fake := newFakeLLM("fake",
 		llm.CompletionResponse{Content: copied},
 		llm.CompletionResponse{Content: "DONE\nok"},
@@ -488,7 +488,7 @@ func TestRun_ProtocolReplacesTheDefaultContract(t *testing.T) {
 // summary reports exactly the withheld delta.
 func TestRun_DataBytesCarried(t *testing.T) {
 	// A payload big enough that the digest is obviously smaller.
-	big := `function run(args) { var blob = ''; for (var i = 0; i < 200; i++) blob += 'record-' + i + ';'; return { blob: blob, count: 200 }; }`
+	big := `state = (function(args){ var blob = ''; for (var i = 0; i < 200; i++) blob += 'record-' + i + ';'; return { blob: blob, count: 200 }; })(state);`
 	fake := newFakeLLM("fake",
 		llm.CompletionResponse{Content: "```javascript\n" + big + "\n```"},
 		llm.CompletionResponse{Content: "DONE\nStored."},
@@ -743,9 +743,8 @@ func (emptyBuilder) Build(_ context.Context, _ agentloop.Session, _ agentloop.Sc
 	return sb, func() {}, nil
 }
 
-// dataBuilder returns a bare sandbox; the loop runs in run(args)→return mode,
-// so state is carried by ExecuteTurn (a `function run(args)` returning a value),
-// not a `data` global.
+// dataBuilder returns a bare sandbox; state is carried by ExecuteTurn
+// (whatever the script leaves in state), not by a capability pack.
 type dataBuilder struct{}
 
 func (dataBuilder) Build(_ context.Context, _ agentloop.Session, _ agentloop.Scope, onEvent sandbox.OnEvent) (*sandbox.Sandbox, func(), error) {
@@ -824,13 +823,13 @@ func TestRun_ErrorsNameTheScriptLineAndRepeats(t *testing.T) {
 }
 
 // TestRun_UserOutput: print writes for the user and not the model's log,
-// return still threads, done() ends with everything printed plus its
+// state still threads, done() ends with everything printed plus its
 // message, and an empty done() is refused with a notice.
 func TestRun_UserOutput(t *testing.T) {
 	fake := newFakeLLM("fake",
 		llm.CompletionResponse{Content: "```javascript\ndone();\n```"},
-		llm.CompletionResponse{Content: "```javascript\nprint('Renamed Title to Name.');\nconsole.log('seen by the model');\nreturn { n: 2 };\n```"},
-		llm.CompletionResponse{Content: "```javascript\nprint(`Files: ${args.n}`);\nexit('Tests pass.');\n```"},
+		llm.CompletionResponse{Content: "```javascript\nprint('Renamed Title to Name.');\nconsole.log('seen by the model');\nstate.n = 2;\n```"},
+		llm.CompletionResponse{Content: "```javascript\nprint(`Files: ${state.n}`);\nexit('Tests pass.');\n```"},
 	)
 	sessions := newMemorySessions()
 	sessions.put("s1", agentloop.Session{ID: "s1"})
@@ -868,7 +867,7 @@ func TestRun_DeclaresOnlyTheFinishItHonours(t *testing.T) {
 		want, never []string
 	}{
 		{false, []string{"call answer(result)", "declare function answer("}, []string{"exit(", "declare function print("}},
-		{true, []string{"then call exit()", "declare function exit(", "declare function print("}, []string{"answer("}},
+		{true, []string{"call exit()", "declare function exit(", "declare function print("}, []string{"answer("}},
 	} {
 		fake := newFakeLLM("fake", llm.CompletionResponse{Content: "DONE\nok"})
 		sessions := newMemorySessions()
@@ -894,16 +893,16 @@ func TestRun_DeclaresOnlyTheFinishItHonours(t *testing.T) {
 	}
 }
 
-// TestRun_InitialArgsReachTheFirstRun: a host's starting state is the
+// TestRun_InitialStateReachTheFirstRun: a host's starting state is the
 // first run's args, so a model that names it in the signature finds it.
-func TestRun_InitialArgsReachTheFirstRun(t *testing.T) {
+func TestRun_InitialStateReachTheFirstRun(t *testing.T) {
 	fake := newFakeLLM("fake",
-		llm.CompletionResponse{Content: "```javascript\nfunction run({ open }) { answer(open.doc); }\n```"},
+		llm.CompletionResponse{Content: "```javascript\nanswer(state.open.doc);\n```"},
 	)
 	sessions := newMemorySessions()
 	sessions.put("s1", agentloop.Session{ID: "s1"})
 	loop := agentloop.New(agentloop.Config{LLM: fake, Sessions: sessions, Steps: newMemorySteps(), SandboxBuilder: dataBuilder{}})
-	result, err := loop.Run(context.Background(), agentloop.RunRequest{SessionID: "s1", Message: "which?", InitialArgs: json.RawMessage(`{"open":{"doc":"kv-1"}}`)})
+	result, err := loop.Run(context.Background(), agentloop.RunRequest{SessionID: "s1", Message: "which?", InitialState: json.RawMessage(`{"open":{"doc":"kv-1"}}`)})
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}

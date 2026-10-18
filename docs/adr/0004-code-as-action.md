@@ -92,6 +92,8 @@ cheaper but forks every context-economy mechanism, which is the worse outcome.
 - 2026-03 — Chosen in `valiro-ai/thinking-core`, for the Gemini decoder reason,
   and exposed there as a `think` tool over a persistent `data` global.
 - 2026-08-21 — Carried into the standalone extraction as `run(args)`.
+- 2026-10-18 — A reply is now a plain script that keeps data in `state`
+  ([ADR-0017](0017-scripts-keep-data-in-state.md)); code as action is unchanged.
 - 2026-08-28 — Recorded retroactively. Writing it surfaced that the motivating
   reason is obsolete and the surviving justification has one measurement behind
   it, not a comparison.

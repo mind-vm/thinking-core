@@ -104,7 +104,7 @@ func TestContextBudgetNeverStrandsAnExecutionResult(t *testing.T) {
 	messages := []llm.Message{
 		{Role: "system", Content: "sys"},
 		msg("user", 500),
-		{Role: "assistant", Content: "```javascript\nfunction run(args) { return 1; }\n```"},
+		{Role: "assistant", Content: "```javascript\nstate.n = 1;\n```"},
 		{Role: "user", Content: executionResultPrefix + "\nlogged something"},
 		{Role: "user", Content: "newest"},
 	}

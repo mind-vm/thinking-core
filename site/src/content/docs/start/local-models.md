@@ -231,7 +231,7 @@ instruction files inlined whole, engine defaults throughout.
 ## Choosing a model
 
 agentloop asks for something more specific than chat: one fenced
-` ```javascript ` block per turn, defining `function run(args)`, calling
+` ```javascript ` block per turn, keeping data in `state`, calling
 `answer()` to finish. That needs solid instruction-following and competent
 code generation. A capable 7–8B instruction-tuned or coding model is roughly
 the practical floor; below it, expect the model to describe what it would do

@@ -6,10 +6,9 @@ repository's name until 2026-10.)
 
 Each turn the model emits one fenced ` ```javascript ` block. thinking-core
 executes it in a sandboxed [goja](https://github.com/dop251/goja) runtime.
-The script keeps data by assigning to `state` (or, in the original contract,
-by implementing `function run(args)` and returning it); that value is threaded
-into the next turn — full fidelity, server-side, never re-serialised into the
-prompt. The model sees only its own `log()` output plus a compact structural
+The script keeps data by assigning to the persistent `state` object; state
+is threaded into the next turn — full fidelity, server-side, never
+re-serialised into the prompt. The model sees only its own `log()` output plus a compact structural
 digest of what it kept. A run finishes when the script calls `answer(result)`.
 
 ```bash
@@ -150,18 +149,15 @@ A failed request is retried up to three times by default — set
 `OPENAI_MAX_RETRIES` (or `llm.Config.MaxRetries`) to tune that, or to
 `0` to turn retrying off entirely.
 
-### Plain scripts
+### Scripts and state
 
-Set `Config.Plain` to let the model write plain scripts instead of
-implementing `run(args)`. Data is kept by assigning to the persistent
-`state` object (`state.rows = rows`); the model sees its shape, not its
-values, exactly as with `return`. The system prompt shrinks to a few lines,
-because there is no convention left to explain. Scripts that declare `run()`
-keep working in both modes.
-
-```go
-loop := agentloop.New(agentloop.Config{ /* … */ Plain: true})
-```
+The model writes plain scripts. Data it wants to keep goes into `state`
+(`state.rows = rows`, or `state = {…}`); the next script finds it there, and
+the model is shown its shape, not its values. A script that throws leaves
+state as it was. Each script runs in its own scope, so locals do not leak
+and a top-level `const` can be declared again next turn. The whole protocol
+prompt is four lines (`TextEmissionSystemPrompt`); `RunRequest.InitialState`
+seeds state for the first script.
 
 ## The CLI
 
@@ -385,7 +381,7 @@ Three things will catch you:
   `agentloop.SummarizingCompactor` is the batteries-included
   implementation: past `Trigger` messages it summarizes everything
   except the most recent `Keep` via an `llm.Client` (point it at a small,
-  cheap model), and it never splits a `run()` block from the execution
+  cheap model), and it never splits a script block from the execution
   result it produced. A session long enough to need compaction can be
   long enough to overflow the context of the call meant to fix that, so
   the transcript is summarized in **chunks** that each fit one call and
@@ -427,7 +423,7 @@ Three things will catch you:
   the history, which is the only point where the real size is knowable.
   The system prompt and the current turn are never dropped; the oldest
   conversational turns go first, an execution result is never stranded
-  from the `run()` block that produced it, and a marker tells the model
+  from the script block that produced it, and a marker tells the model
   how many turns are gone so it doesn't quietly assume what they
   contained. Every trim emits a `budget_trimmed` event and every turn
   span carries `agentloop.budget.estimated_tokens` against
@@ -736,7 +732,7 @@ engine:
 - **Process-level isolation only.** goja is memory-safe and
   interruptible, but sandboxes share the host process's heap/CPU — no
   per-run resource quota.
-- **Unbounded args carry.** Nothing caps the size of the server-side
+- **Unbounded state carry.** Nothing caps the size of the server-side
   state threaded between turns (`RunResult.DataBytesCarried` gives you
   the observability to notice, not a limit).
 - **No built-in cost ceiling.** `MaxIterations` bounds turns and token

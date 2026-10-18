@@ -68,7 +68,7 @@ func turns(n int) []llm.Message {
 	out := []llm.Message{{Role: "user", Content: "do the thing"}}
 	for i := range n {
 		out = append(out,
-			llm.Message{Role: "assistant", Content: fmt.Sprintf("```javascript\nfunction run(args) { return %d; }\n```", i)},
+			llm.Message{Role: "assistant", Content: fmt.Sprintf("```javascript\nstate.n = %d;\n```", i)},
 			llm.Message{Role: "user", Content: fmt.Sprintf("%s\nlogged %d", executionResultPrefix, i)},
 		)
 	}
@@ -83,7 +83,7 @@ func fatTurns(n, size int) []llm.Message {
 	out := []llm.Message{{Role: "user", Content: "do the thing " + body}}
 	for i := range n {
 		out = append(out,
-			llm.Message{Role: "assistant", Content: fmt.Sprintf("```javascript\nfunction run(args) { return %d; }\n```\n%s", i, body)},
+			llm.Message{Role: "assistant", Content: fmt.Sprintf("```javascript\nstate.n = %d;\n```\n%s", i, body)},
 			llm.Message{Role: "user", Content: fmt.Sprintf("%s\nlogged %d\n%s", executionResultPrefix, i, body)},
 		)
 	}

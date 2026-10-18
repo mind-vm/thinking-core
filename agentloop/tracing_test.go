@@ -51,7 +51,7 @@ func TestRun_EmitsSpanTreeOnSuccess(t *testing.T) {
 	tp, sr := newRecordingTracerProvider()
 
 	fake := newFakeLLM("fake",
-		llm.CompletionResponse{Content: "```javascript\nfunction run(args) { return 1; }\n```", Model: "m", InputTokens: 10, OutputTokens: 4},
+		llm.CompletionResponse{Content: "```javascript\nstate.n = 1;\n```", Model: "m", InputTokens: 10, OutputTokens: 4},
 		llm.CompletionResponse{Content: "DONE\nfinal", Model: "m", InputTokens: 8, OutputTokens: 2},
 	)
 	sessions := newMemorySessions()

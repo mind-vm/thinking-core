@@ -33,7 +33,7 @@ func buildSandbox(t *testing.T, sk []skills.Skill, enabled *[]string) *sandbox.S
 // eval runs one script body and unmarshals what it returned.
 func eval(t *testing.T, sb *sandbox.Sandbox, code string, into any) {
 	t.Helper()
-	_, ret, err := sb.ExecuteTurn("function run(args) {\n"+code+"\n}", json.RawMessage(`{}`))
+	_, ret, err := sb.ExecuteTurn("state = (function(args){\n"+code+"\n})(state);", json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatalf("execute %q: %v", code, err)
 	}

@@ -143,9 +143,9 @@ func TestRunEmitsBudgetTrimmedEvent(t *testing.T) {
 func TestRunWarnsWhenNothingLeftToDrop(t *testing.T) {
 	steps := newMemorySteps()
 	fake := newFakeLLM("fake", llm.CompletionResponse{Content: "DONE\nok"})
-	// The composed system prompt alone is thousands of tokens, so a
-	// 600-token window cannot fit the floor however much is dropped.
-	loop := budgetLoop(t, agentloop.ContextBudget{MaxTokens: 600}, fake, steps, "s1")
+	// The composed system prompt alone is a few hundred tokens, so a
+	// 200-token window cannot fit the floor however much is dropped.
+	loop := budgetLoop(t, agentloop.ContextBudget{MaxTokens: 200}, fake, steps, "s1")
 
 	onEvent, events := collectEvents()
 	if _, err := loop.Run(context.Background(), agentloop.RunRequest{

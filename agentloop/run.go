@@ -184,14 +184,6 @@ type Config struct {
 	// prose-as-final.
 	RequireScript bool
 
-	// Plain lets the model write plain scripts: no run(args) to implement,
-	// data kept by assigning to the persistent `state` object, and a
-	// system prompt of a few lines (plainProtocol + PlainCorePrompt)
-	// instead of the run/return contract. Scripts that do declare run()
-	// still work. Protocol, if set, still wins. Optional; false keeps the
-	// run(args) contract and its prompt.
-	Plain bool
-
 	// Protocol replaces TextEmissionSystemPrompt at the head of the
 	// composed system prompt, for an agent that states the reply contract
 	// in its own words. The sandbox API is still appended after it.
@@ -239,7 +231,7 @@ func proseCorrection(finish string) string {
 // standing in for an earlier script.
 func staleCodeCorrection(finish string) string {
 	return "Your reply repeated the placeholder that stands in for an earlier script, so nothing ran. " +
-		"That script's output is already above and its return value is in args. " +
+		"That script's output is already above and what it kept is in state. " +
 		"Write the next script, the one that moves the task forward, and " + finish + "."
 }
 
@@ -449,15 +441,8 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 		sb.EnableUserOutput()
 	}
 
-	protocol := l.cfg.Protocol
-	if l.cfg.Plain {
-		sb.UsePlainCorePrompt()
-		if protocol == "" {
-			protocol = plainProtocol
-		}
-	}
 	sandboxAPI := sb.SystemPrompt()
-	sysPrompt := composeSystemPrompt(protocol, l.cfg.UserOutput, sess.SystemPrompt, sandboxAPI)
+	sysPrompt := composeSystemPrompt(l.cfg.Protocol, l.cfg.UserOutput, sess.SystemPrompt, sandboxAPI)
 	if req.Context != "" {
 		sysPrompt = sysPrompt + "\n\n" + req.Context
 	}
@@ -477,12 +462,12 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 	// answer (see shape.go).
 	baseLen := len(history)
 
-	// prevArgs carries the previous turn's return value into the next as
-	// `args`. Held in-process across iterations of this Run; full
+	// prevState carries the previous turn's return value into the next as
+	// `state`. Held in-process across iterations of this Run; full
 	// fidelity, never serialised into the prompt.
-	prevArgs := json.RawMessage("{}")
-	if len(req.InitialArgs) > 0 {
-		prevArgs = req.InitialArgs
+	prevState := json.RawMessage("{}")
+	if len(req.InitialState) > 0 {
+		prevState = req.InitialState
 	}
 	emptyRetries := 0
 	proseRetries := 0
@@ -522,7 +507,7 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 			streamOnEvent = nil
 		}
 		streamer := newResponseStreamer(streamOnEvent)
-		// Elide stale run() bodies: their effect already lives in `args`
+		// Elide stale script bodies: their effect already lives in `state`
 		// (state) and the logs (observations), so re-sending the verbatim
 		// source every turn is pure triangular accumulation. Keep only
 		// the most recent block (for error-retry continuity) plus all logs.
@@ -530,12 +515,12 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 		// The shape of the args this turn's run() will receive is
 		// injected EPHEMERALLY — built fresh each call, never stored in
 		// history — so the digest appears exactly once.
-		if shape := dataShape(prevArgs); shape != "" {
+		if shape := dataShape(prevState); shape != "" {
 			messages = append(messages, llm.Message{
 				Role:    "user",
-				Content: l.shapeLabel() + shape,
+				Content: "state (shape only):\n" + shape,
 			})
-			if delta := int64(len(prevArgs)) - int64(len(shape)); delta > 0 {
+			if delta := int64(len(prevState)) - int64(len(shape)); delta > 0 {
 				dataBytesCarried += delta
 			}
 		}
@@ -690,7 +675,7 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 
 		_, jsSpan := l.tracer.Start(tctx, spanExecuteJS)
 		sb.SetBlocks(ExtractDataBlocks(replyText))
-		logs, ret, execErr := sb.ExecuteTurn(jsCode, prevArgs)
+		logs, ret, execErr := sb.ExecuteTurn(jsCode, prevState)
 		if execErr != nil {
 			rerr := redactErr(l.cfg.Redactor, execErr)
 			jsSpan.RecordError(rerr)
@@ -700,7 +685,7 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 		resultContent = logs
 		if execErr != nil {
 			// A failing turn must NOT destroy the carry — preserve
-			// prevArgs so the model can fix its code and retry with the
+			// prevState so the model can fix its code and retry with the
 			// state it already built. The error is sanitized (goja's
 			// internal stack noise stripped) and, where a common failure
 			// pattern is recognised, given a concrete retry hint — both
@@ -729,15 +714,11 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 			}
 			lastError = clean
 			if !final {
-				if l.cfg.Plain {
-					resultContent += "\n(state is unchanged — fix and retry.)"
-				} else {
-					resultContent += "\n(args from the previous turn are preserved — fix and retry.)"
-				}
+				resultContent += "\n(state is unchanged — fix and retry.)"
 			}
 		} else {
 			lastError = ""
-			prevArgs = ret // thread full-fidelity return into next turn's args
+			prevState = ret // thread full-fidelity state into the next turn
 			persistBlob = ret
 		}
 		finalOutput, doneCalled := "", false
@@ -1063,13 +1044,4 @@ func retainFromStep(retainedFrom int, stepOf []int32) (int32, bool) {
 		return stepOf[len(stepOf)-1] + 1, true
 	}
 	return stepOf[retainedFrom], true
-}
-
-// shapeLabel introduces the carried-value digest in the words of the
-// protocol the model was given.
-func (l *loop) shapeLabel() string {
-	if l.cfg.Plain {
-		return "state (shape only):\n"
-	}
-	return "args shape (what your next script receives as args):\n"
 }

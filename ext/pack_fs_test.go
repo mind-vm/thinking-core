@@ -47,7 +47,7 @@ func workspaceAt(t *testing.T, files map[string]string, opts ext.WorkspaceOption
 // asserts on what the next turn would actually see.
 func run(t *testing.T, sb *sandbox.Sandbox, script string) string {
 	t.Helper()
-	_, ret, err := sb.ExecuteTurn("function run(args) {\n"+script+"\n}", json.RawMessage(`{}`))
+	_, ret, err := sb.ExecuteTurn("state = (function(args){\n"+script+"\n})(state);", json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatalf("execute: %v\nscript:\n%s", err, script)
 	}
@@ -57,7 +57,7 @@ func run(t *testing.T, sb *sandbox.Sandbox, script string) string {
 // runErr executes a turn expected to throw, returning the message.
 func runErr(t *testing.T, sb *sandbox.Sandbox, script string) string {
 	t.Helper()
-	_, _, err := sb.ExecuteTurn("function run(args) {\n"+script+"\n}", json.RawMessage(`{}`))
+	_, _, err := sb.ExecuteTurn("state = (function(args){\n"+script+"\n})(state);", json.RawMessage(`{}`))
 	if err == nil {
 		t.Fatalf("want an error from:\n%s", script)
 	}
@@ -403,7 +403,7 @@ func TestReadsAreNotGated(t *testing.T) {
 	sb, _ := workspaceAt(t, sampleTree, ext.WorkspaceOptions{Approver: approver}, sandbox.DefaultPolicy{})
 
 	for _, expr := range []string{`readFile("README.md")`, `listDir(".")`, `glob("**/*.go")`, `grep("func")`} {
-		if _, _, err := sb.ExecuteTurn("function run(args) { return "+expr+"; }", []byte(`{}`)); err != nil {
+		if _, _, err := sb.ExecuteTurn("state = (function(args){ return "+expr+"; })(state);", []byte(`{}`)); err != nil {
 			t.Errorf("%s should not need permission: %v", expr, err)
 		}
 	}

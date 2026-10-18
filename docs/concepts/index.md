@@ -12,23 +12,25 @@ JavaScript sandbox and asks it to write a small program.
 
 ## One turn, one script
 
-Each turn the model emits a single fenced ` ```javascript ` block defining:
+Each turn the model emits a single fenced ` ```javascript ` block — a plain
+script:
 
 ```js
-function run(args) {
-  // ...
-}
+const rows = docs.records(id, 0).filter(r => r.Status !== "done");
+state.open = rows;            // kept for the next script
+log(rows.length, "open");     // what the model reads
 ```
 
 agentloop executes that script in a sandboxed
 [goja](https://github.com/dop251/goja) runtime — a pure-Go JS engine, no
-subprocess, no V8. `run`'s return value becomes `args` for the *next* turn.
+subprocess, no V8. Whatever the script leaves in `state` is `state` again in
+the *next* turn.
 
 A run ends when the script calls `answer(result)` — an explicit signal that
 the agent is done, rather than agentloop guessing from the shape of the
 output.
 
-## Why a real return value beats re-serialised text
+## Why carried state beats re-serialised text
 
 Named-tool loops thread state through the prompt: a tool's result gets
 serialised to text, appended to the conversation, and the model has to
@@ -36,10 +38,10 @@ re-read and re-parse it on the next turn. That costs tokens on every step and
 loses fidelity — numbers become strings, structure becomes prose the model
 has to reconstruct.
 
-agentloop's `run` return value is a real JavaScript value threaded
-server-side into the next turn's `args`. The model never sees it directly —
+`state` holds real JavaScript values, threaded server-side into the next
+turn. The model never sees it directly —
 it sees only what its own `log()` calls printed, plus a compact structural
-digest (shape, not full contents) of what the previous turn returned. Large
+digest (shape, not full contents) of state. Large
 data can pass through many turns without ever entering the context window
 twice.
 
@@ -49,7 +51,7 @@ A long-running agent that kept every turn's script verbatim in history would
 grow its prompt linearly with turn count. agentloop elides stale code: only
 the most recent turn's script is kept verbatim in the conversation sent to
 the model; earlier ones are replaced by a one-line marker, since their effect
-already lives in `args` and their observations in the logs. Combined with
+already lives in `state` and their observations in the logs. Combined with
 structural-digest threading, this is what keeps many-step runs affordable.
 
 Neither mechanism bounds the conversation itself, though. For that there are

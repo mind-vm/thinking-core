@@ -1,13 +1,13 @@
 // Package agentloop is a small reasoning-loop engine for LLM agents that
 // think by writing JavaScript instead of calling named tools.
 //
-// Each turn the model emits one fenced ```javascript block defining
-// `function run(args) { ... }`. The loop executes it in a sandboxed goja
-// runtime (package sandbox) and threads its return value into the next
-// turn as `args` — full fidelity, server-side, never serialised back into
-// the prompt. The model sees only its own log() output plus a compact
-// structural digest of what it returned. A run finishes when the script
-// calls answer(result).
+// Each turn the model emits one fenced ```javascript block. The loop
+// executes it in a sandboxed goja runtime (package sandbox) and threads
+// what the script left in the persistent `state` object into the next
+// turn — full fidelity, server-side, never serialised back into the
+// prompt. The model sees only its own log() output plus a compact
+// structural digest of state. A run finishes when the script calls
+// answer(result).
 //
 // This design — return-threading instead of a growing tool-call
 // transcript — keeps the prompt small even for many-step runs: stale
@@ -79,12 +79,10 @@ type RunRequest struct {
 	// Message.
 	Context string
 
-	// InitialArgs is what the first turn's run receives as args, a JSON
+	// InitialState is what state holds when the first script runs, a JSON
 	// object; empty is {}. A host that tells the model what is at hand —
-	// who asks, what is open — and states the contract as "run receives
-	// what you returned" hands it over here, so a model that names it in
-	// run's signature finds it there rather than undefined.
-	InitialArgs json.RawMessage
+	// who asks, what is open — hands it over here.
+	InitialState json.RawMessage
 
 	// OnEvent receives every observability emission as it happens. Nil
 	// is acceptable — events still land in the step trace.

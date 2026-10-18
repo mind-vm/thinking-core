@@ -56,7 +56,7 @@ func TestFetchReturnsStatusBodyAndHeaders(t *testing.T) {
 	// case-insensitive Headers rather than Go's canonical casing. A
 	// script indexing them by the name the server sent would read
 	// undefined, so the normalisation is worth pinning.
-	_, ret := turn(t, s, `function run(args) {
+	_, ret := turn(t, s, `state = (function(args){
 		const r = fetch(`+quote(url+"/thing")+`);
 		return {
 			status: r.status,
@@ -64,7 +64,7 @@ func TestFetchReturnsStatusBodyAndHeaders(t *testing.T) {
 			method: r.headers["x-echo-method"],
 			canonical: r.headers["X-Echo-Method"] === undefined,
 		};
-	}`)
+	})(state);`)
 
 	var got map[string]any
 	if err := json.Unmarshal(ret, &got); err != nil {
@@ -89,9 +89,9 @@ func TestFetchReturnsStatusBodyAndHeaders(t *testing.T) {
 func TestFetchSendsRequestHeaders(t *testing.T) {
 	s, url := fetchAgainst(t, nil, AllowAll, echoHandler)
 
-	_, ret := turn(t, s, `function run(args) {
+	_, ret := turn(t, s, `state = (function(args){
 		return fetch(`+quote(url)+`, { headers: { Authorization: "Bearer t0ken" } }).body;
-	}`)
+	})(state);`)
 	if !strings.Contains(string(ret), "auth=Bearer t0ken") {
 		t.Errorf("the request header did not reach the server: %s", ret)
 	}
@@ -104,7 +104,7 @@ func TestFetchSendsRequestHeaders(t *testing.T) {
 func TestUnapprovedHostFailsWithNoRequester(t *testing.T) {
 	s, url := fetchAgainst(t, nil, DefaultPolicy{}, echoHandler)
 
-	_, _, err := s.ExecuteTurn(`function run(args) { return fetch(`+quote(url)+`); }`, nil)
+	_, _, err := s.ExecuteTurn(`state = (function(args){ return fetch(`+quote(url)+`); })(state);`, nil)
 	if err == nil {
 		t.Fatal("a denied host should fail the call")
 	}
@@ -117,7 +117,7 @@ func TestApprovedHostProceeds(t *testing.T) {
 	approver := &askApprover{answer: true}
 	s, url := fetchAgainst(t, approver, DefaultPolicy{}, echoHandler)
 
-	_, ret := turn(t, s, `function run(args) { return fetch(`+quote(url)+`).status; }`)
+	_, ret := turn(t, s, `state = (function(args){ return fetch(`+quote(url)+`).status; })(state);`)
 	if string(ret) != "200" {
 		t.Errorf("status = %s", ret)
 	}
@@ -139,7 +139,7 @@ func TestRefusedHostDoesNotFetch(t *testing.T) {
 		echoHandler(w, r)
 	})
 
-	if _, _, err := s.ExecuteTurn(`function run(args) { return fetch(`+quote(url)+`); }`, nil); err == nil {
+	if _, _, err := s.ExecuteTurn(`state = (function(args){ return fetch(`+quote(url)+`); })(state);`, nil); err == nil {
 		t.Fatal("a refused fetch should fail")
 	}
 	if served {
@@ -153,13 +153,13 @@ func TestApprovalIsRememberedForTheSession(t *testing.T) {
 	approver := &askApprover{answer: true}
 	s, url := fetchAgainst(t, approver, DefaultPolicy{}, echoHandler)
 
-	turn(t, s, `function run(args) {
+	turn(t, s, `state = (function(args){
 		fetch(`+quote(url+"/one")+`);
 		fetch(`+quote(url+"/two")+`);
 		return 1;
-	}`)
+	})(state);`)
 	// And across turns, since the pack outlives a single one.
-	turn(t, s, `function run(args) { return fetch(`+quote(url+"/three")+`).status; }`)
+	turn(t, s, `state = (function(args){ return fetch(`+quote(url+"/three")+`).status; })(state);`)
 
 	if len(approver.asked) != 1 {
 		t.Errorf("asked %d times, want 1: %v", len(approver.asked), approver.asked)
@@ -171,7 +171,7 @@ func TestApproverErrorDeniesTheFetch(t *testing.T) {
 	approver := &askApprover{err: context.Canceled}
 	s, url := fetchAgainst(t, approver, DefaultPolicy{}, echoHandler)
 
-	if _, _, err := s.ExecuteTurn(`function run(args) { return fetch(`+quote(url)+`); }`, nil); err == nil {
+	if _, _, err := s.ExecuteTurn(`state = (function(args){ return fetch(`+quote(url)+`); })(state);`, nil); err == nil {
 		t.Fatal("a failed permission request must not read as approval")
 	}
 }
@@ -182,10 +182,10 @@ func TestAllowUrlsPreApproves(t *testing.T) {
 	approver := &askApprover{answer: true}
 	s, url := fetchAgainst(t, approver, DefaultPolicy{}, echoHandler)
 
-	turn(t, s, `function run(args) {
+	turn(t, s, `state = (function(args){
 		allowUrls(["127.0.0.1"]);
 		return fetch(`+quote(url)+`).status;
-	}`)
+	})(state);`)
 	if len(approver.asked) != 1 {
 		t.Errorf("asked %d times, want 1 — allowUrls should cover the later fetch: %v", len(approver.asked), approver.asked)
 	}
@@ -200,7 +200,7 @@ func TestAnAllowedURLNeverPrompts(t *testing.T) {
 	s := New(FetchPack(context.Background(), approver))
 	s.SetPolicy(DefaultPolicy{URLAllowPrefixes: []string{srv.URL + "/"}})
 
-	turn(t, s, `function run(args) { return fetch(`+quote(srv.URL+"/x")+`).status; }`)
+	turn(t, s, `state = (function(args){ return fetch(`+quote(srv.URL+"/x")+`).status; })(state);`)
 	if len(approver.asked) != 0 {
 		t.Errorf("an allowed URL should not prompt: %v", approver.asked)
 	}
@@ -210,7 +210,7 @@ func TestFetchWhitelistReportsThePolicyAllowlist(t *testing.T) {
 	s := New(FetchPack(context.Background(), nil))
 	s.SetPolicy(DefaultPolicy{URLAllowPrefixes: []string{"https://a.example/", "https://b.example/"}})
 
-	_, ret := turn(t, s, `function run(args) { return fetchWhitelist(); }`)
+	_, ret := turn(t, s, `state = (function(args){ return fetchWhitelist(); })(state);`)
 	got := string(ret)
 	if !strings.Contains(got, "a.example") || !strings.Contains(got, "b.example") {
 		t.Errorf("fetchWhitelist() = %s", got)
@@ -219,9 +219,9 @@ func TestFetchWhitelistReportsThePolicyAllowlist(t *testing.T) {
 
 func TestHtmlToMarkdown(t *testing.T) {
 	s := New(FetchPack(context.Background(), nil))
-	_, ret := turn(t, s, `function run(args) {
+	_, ret := turn(t, s, `state = (function(args){
 		return htmlToMarkdown("<h1>Title</h1><p>Some <a href='https://example.com'>link</a>.</p>");
-	}`)
+	})(state);`)
 	got := string(ret)
 	if !strings.Contains(got, "Title") || !strings.Contains(got, "example.com") {
 		t.Errorf("htmlToMarkdown = %s", got)
@@ -287,9 +287,9 @@ func TestEgressHeadersReachTheWireAndOverrideTheScript(t *testing.T) {
 	s := New(FetchPack(ctx, nil))
 	s.SetPolicy(AllowAll)
 
-	_, ret := turn(t, s, `function run(args) {
+	_, ret := turn(t, s, `state = (function(args){
 		return fetch(`+quote(srv.URL)+`, { headers: { Authorization: "Bearer from-script" } }).body;
-	}`)
+	})(state);`)
 	if !strings.Contains(string(ret), "auth=Bearer host-token") {
 		t.Errorf("the host's header did not win: %s", ret)
 	}
@@ -324,11 +324,11 @@ func TestHttpModuleSendsEachVerb(t *testing.T) {
 	s := New(RequirePack(context.Background()), FetchPack(context.Background(), nil), HttpModulePack())
 	s.SetPolicy(AllowAll)
 
-	_, ret := turn(t, s, `function run(args) {
+	_, ret := turn(t, s, `state = (function(args){
 		const h = require("http");
 		const u = `+quote(srv.URL)+`;
 		return [h.get(u), h.post(u, "{}"), h.put(u, "{}"), h.patch(u, "{}"), h.del(u)].map(r => r.headers["x-echo-method"]);
-	}`)
+	})(state);`)
 	if string(ret) != `["GET","POST","PUT","PATCH","DELETE"]` {
 		t.Errorf("methods = %s", ret)
 	}

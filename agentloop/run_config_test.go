@@ -15,7 +15,7 @@ import (
 // always emits JS, the run terminates as max_iterations after exactly
 // two round-trips.
 func TestRun_MaxIterationsConfigurable(t *testing.T) {
-	js := "```javascript\nfunction run(args) { return {}; }\n```"
+	js := "```javascript\nlog(1);\n```"
 	fake := newFakeLLM("fake",
 		llm.CompletionResponse{Content: js},
 		llm.CompletionResponse{Content: js},

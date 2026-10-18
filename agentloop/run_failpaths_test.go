@@ -306,7 +306,7 @@ func TestRun_UpdateDataFails_WarnsAndContinues(t *testing.T) {
 
 	loop := agentloop.New(agentloop.Config{
 		LLM: newFakeLLM("fake",
-			llm.CompletionResponse{Content: "```js\nfunction run(args) { return { x: 1 }; }\n```"},
+			llm.CompletionResponse{Content: "```js\nstate.x = 1;\n```"},
 			llm.CompletionResponse{Content: "DONE\ndone"},
 		),
 		Sessions:       sessions,

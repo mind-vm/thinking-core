@@ -47,7 +47,7 @@ func seedHistory(t *testing.T, steps *memorySteps, id string) {
 	t.Helper()
 	prior := []agentloop.RunStep{
 		{StepType: "user", Content: "the original ask"},
-		{StepType: "execute_js", Content: "function run(args) { return 1; }"},
+		{StepType: "execute_js", Content: "state.n = 1;"},
 		{StepType: "execute_js_result", Content: "logged something"},
 		{StepType: "response", Content: "the earlier answer"},
 	}

@@ -312,7 +312,7 @@ func TestPackDeclaresItsPrimitives(t *testing.T) {
 // result, via the same run()/return protocol the loop uses.
 func execString(t *testing.T, sb *sandbox.Sandbox, expr string) string {
 	t.Helper()
-	_, ret, err := sb.ExecuteTurn("function run(args) { return "+expr+"; }", json.RawMessage(`{}`))
+	_, ret, err := sb.ExecuteTurn("state = (function(args){ return "+expr+"; })(state);", json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatalf("execute %s: %v", expr, err)
 	}

@@ -1,7 +1,6 @@
 package sandbox
 
 import (
-	"encoding/json"
 	"testing"
 )
 
@@ -112,16 +111,5 @@ func TestAutoReturn_ChainedFinalExpression(t *testing.T) {
 				t.Fatalf("got %q, want %q", got, c.want)
 			}
 		})
-	}
-}
-
-// A host may pass values before args: run($, args).
-func TestRunLeadingValuesPrecedeArgs(t *testing.T) {
-	sb := New()
-	_ = sb.Runtime().Set("$", map[string]any{"name": "office"})
-	sb.SetRunLeading("$")
-	_, ret, err := sb.ExecuteTurn(`function run($, { n }) { return { got: $.name + " " + n }; }`, json.RawMessage(`{"n": 2}`))
-	if err != nil || string(ret) != `{"got":"office 2"}` {
-		t.Fatalf("ret %s, err %v", ret, err)
 	}
 }

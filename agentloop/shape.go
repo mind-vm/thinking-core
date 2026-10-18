@@ -9,18 +9,18 @@ import (
 	"github.com/mind-vm/thinking-core/llm"
 )
 
-// staleCodeMarker replaces the body of an already-executed run() in the
-// history sent to the model. Its return value is in `args` and its
+// staleCodeMarker replaces the body of an already-executed script in the
+// history sent to the model. What it kept is in `state` and its
 // output in the result message that follows, so the verbatim source is
 // redundant.
 //
 // It is itself a script, because the model reads its own past turns as
 // examples of how to reply: a bare bracketed line got copied back as a
 // reply by models that imitate history. Copied, this one runs as a no-op
-// that keeps args.
-const staleCodeMarker = "```javascript\nfunction run(args) {\n  // " + staleCodeNote + "\n  return args;\n}\n```"
+// that leaves state alone.
+const staleCodeMarker = "```javascript\n// " + staleCodeNote + "\n```"
 
-const staleCodeNote = "earlier turn, body omitted: its logs are in the next message and its return value is in args"
+const staleCodeNote = "earlier turn, body omitted: its logs are in the next message and what it kept is in state"
 
 // isStaleCodeCopy reports whether a reply's script is the marker copied
 // back. A model that sees several markers in a row continues the pattern,
@@ -31,8 +31,8 @@ func isStaleCodeCopy(code string) bool {
 
 // elideStaleCode returns a copy of history with every assistant message
 // at index >= fromIndex, except the most recent one overall, replaced by
-// a one-line marker. A past run()'s effect is fully captured by the
-// threaded `args` and the logs, so the only block worth keeping verbatim
+// a one-line marker. A past script's effect is fully captured by the
+// threaded `state` and the logs, so the only block worth keeping verbatim
 // is the latest one (which the model may need to repair on an
 // error-retry). This removes the triangular re-send of stale code that
 // otherwise dominates prompt growth. Non-assistant messages pass through

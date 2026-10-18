@@ -74,8 +74,8 @@ func TestStaleCodeMarkerIsAScript(t *testing.T) {
 	if code == "" {
 		t.Fatalf("marker is not a fenced script: %q", staleCodeMarker)
 	}
-	if !strings.Contains(code, "function run(args)") || !strings.Contains(code, "return args;") {
-		t.Errorf("marker script does not pass args through: %q", code)
+	if strings.Contains(code, "state =") || strings.Contains(code, "state.") {
+		t.Errorf("marker script touches state: %q", code)
 	}
 }
 
