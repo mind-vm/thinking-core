@@ -115,3 +115,12 @@ func composeSystemPrompt(protocol string, userOutput bool, persona, sandboxAPI s
 	}
 	return out
 }
+
+// plainProtocol heads the system prompt when Config.Plain is set. It
+// states only what the model cannot know: that a reply runs, what
+// persists, and what the runtime lacks. Everything else is left to how
+// it would write a script anyway.
+const plainProtocol = "You solve tasks by writing JavaScript. Reply with one ```javascript block; it runs in a sandbox, and you see what it logs. Continue with the next block until you call answer().\n\n" +
+	"- `state` is an object that persists between your scripts. Keep data there; you are shown its shape, not its values.\n" +
+	"- log() what you need to read yourself: counts, names, small samples, not whole datasets.\n" +
+	"- The runtime is synchronous: no await or Promises, no Node or browser APIs. The functions declared below are all there is."

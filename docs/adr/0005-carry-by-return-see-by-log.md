@@ -81,3 +81,9 @@ in `prompts.go` teaches `return`-to-carry / `log`-to-see.
   studio-apps ADR-0039: only the loop knows both the carried size and the digest
   it injected, so it cannot be measured after the fact.
 - 2026-08-28 — Recorded here retroactively.
+- 2026-10-18 — `state` added as a second name for the carried value: a script
+  without `run()` keeps data by assigning to `state`, and that object threads on.
+  `Config.Plain` pairs it with a few-line prompt. The channels are unchanged —
+  the value is carried, only its shape is shown — but the model no longer has to
+  learn the return convention to use them. On the documents benchmark the
+  same three-turn task took ~2.7k estimated input tokens instead of ~7.3k.

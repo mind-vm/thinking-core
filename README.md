@@ -145,6 +145,19 @@ A failed request is retried up to three times by default — set
 `OPENAI_MAX_RETRIES` (or `llm.Config.MaxRetries`) to tune that, or to
 `0` to turn retrying off entirely.
 
+### Plain scripts
+
+Set `Config.Plain` to let the model write plain scripts instead of
+implementing `run(args)`. Data is kept by assigning to the persistent
+`state` object (`state.rows = rows`); the model sees its shape, not its
+values, exactly as with `return`. The system prompt shrinks to a few lines,
+because there is no convention left to explain. Scripts that declare `run()`
+keep working in both modes.
+
+```go
+loop := agentloop.New(agentloop.Config{ /* … */ Plain: true})
+```
+
 ## The CLI
 
 [`cmd/agentloop`](cmd/agentloop) is the engine as a command. It discovers

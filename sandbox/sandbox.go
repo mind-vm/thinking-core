@@ -257,6 +257,24 @@ declare function exit(message?: string): void;
 
 // defaultCorePrompt declares the globals every sandbox registers, with
 // {{finish}} standing for the finish the run registered.
+// PlainCorePrompt is the core declaration block for plain scripts
+// (agentloop.Config.Plain): the two functions a script needs, nothing
+// that teaches a convention.
+const PlainCorePrompt = `/** End the task and give result (markdown or JSON) to the user. */
+declare function answer(result: string | object): void;
+/** Show values to yourself; you read them before writing the next script. */
+declare function log(...values: any[]): void;
+/** Persists between your scripts. You see its shape, not its values. */
+declare const state: Record<string, any>;`
+
+// UsePlainCorePrompt switches the core declarations to PlainCorePrompt
+// unless the host already chose its own with SetCorePrompt.
+func (s *Sandbox) UsePlainCorePrompt() {
+	if s.corePrompt == "" {
+		s.corePrompt = PlainCorePrompt
+	}
+}
+
 const defaultCorePrompt = `// --- Core ---
 // You implement: function run(args) { ... } — one per turn. Everything below is provided by the sandbox.
 
@@ -490,6 +508,12 @@ func (s *Sandbox) ExecuteTurn(code string, argsJSON json.RawMessage) (logs strin
 		}
 	}
 
+	// `state` is args under a second name: a plain script keeps data by
+	// assigning to it (state.rows = rows) and wrap() threads it on.
+	if v := s.runtime.Get("args"); v != nil {
+		_ = s.runtime.Set("state", v)
+	}
+
 	// Define the code, then call run(args) if the model declared it. Loose
 	// scripts (no run) execute for their side effects and return nothing.
 	val, runErr := s.runtime.RunString(s.wrap(code))
@@ -507,13 +531,15 @@ func (s *Sandbox) ExecuteTurn(code string, argsJSON json.RawMessage) (logs strin
 
 // wrap turns a model's script into the program that is evaluated: a
 // closure whose value is run(args) if one was declared, so a bare
-// top-level return threads as args too.
+// top-level return threads as args too. A script with neither threads
+// `state` — the same object as args, under the name a plain script
+// reaches for when it wants something to outlive it.
 func (s *Sandbox) wrap(code string) string {
 	call := "args"
 	if len(s.runLeading) > 0 {
 		call = strings.Join(s.runLeading, ", ") + ", args"
 	}
-	return "(function(){\n" + code + "\nif (typeof run === 'function') { return run(" + call + "); }\n})()"
+	return "(function(){\n" + code + "\nif (typeof run === 'function') { return run(" + call + "); }\nreturn state;\n})()"
 }
 
 // SetRunLeading names globals the sandbox passes to run before args —

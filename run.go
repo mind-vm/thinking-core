@@ -184,6 +184,14 @@ type Config struct {
 	// prose-as-final.
 	RequireScript bool
 
+	// Plain lets the model write plain scripts: no run(args) to implement,
+	// data kept by assigning to the persistent `state` object, and a
+	// system prompt of a few lines (plainProtocol + PlainCorePrompt)
+	// instead of the run/return contract. Scripts that do declare run()
+	// still work. Protocol, if set, still wins. Optional; false keeps the
+	// run(args) contract and its prompt.
+	Plain bool
+
 	// Protocol replaces TextEmissionSystemPrompt at the head of the
 	// composed system prompt, for an agent that states the reply contract
 	// in its own words. The sandbox API is still appended after it.
@@ -441,8 +449,15 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 		sb.EnableUserOutput()
 	}
 
+	protocol := l.cfg.Protocol
+	if l.cfg.Plain {
+		sb.UsePlainCorePrompt()
+		if protocol == "" {
+			protocol = plainProtocol
+		}
+	}
 	sandboxAPI := sb.SystemPrompt()
-	sysPrompt := composeSystemPrompt(l.cfg.Protocol, l.cfg.UserOutput, sess.SystemPrompt, sandboxAPI)
+	sysPrompt := composeSystemPrompt(protocol, l.cfg.UserOutput, sess.SystemPrompt, sandboxAPI)
 	if req.Context != "" {
 		sysPrompt = sysPrompt + "\n\n" + req.Context
 	}
@@ -518,7 +533,7 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 		if shape := dataShape(prevArgs); shape != "" {
 			messages = append(messages, llm.Message{
 				Role:    "user",
-				Content: "args shape (what your next script receives as args):\n" + shape,
+				Content: l.shapeLabel() + shape,
 			})
 			if delta := int64(len(prevArgs)) - int64(len(shape)); delta > 0 {
 				dataBytesCarried += delta
@@ -714,7 +729,11 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 			}
 			lastError = clean
 			if !final {
-				resultContent += "\n(args from the previous turn are preserved — fix and retry.)"
+				if l.cfg.Plain {
+					resultContent += "\n(state is unchanged — fix and retry.)"
+				} else {
+					resultContent += "\n(args from the previous turn are preserved — fix and retry.)"
+				}
 			}
 		} else {
 			lastError = ""
@@ -1044,4 +1063,13 @@ func retainFromStep(retainedFrom int, stepOf []int32) (int32, bool) {
 		return stepOf[len(stepOf)-1] + 1, true
 	}
 	return stepOf[retainedFrom], true
+}
+
+// shapeLabel introduces the carried-value digest in the words of the
+// protocol the model was given.
+func (l *loop) shapeLabel() string {
+	if l.cfg.Plain {
+		return "state (shape only):\n"
+	}
+	return "args shape (what your next script receives as args):\n"
 }

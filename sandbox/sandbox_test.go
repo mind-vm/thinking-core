@@ -68,15 +68,49 @@ func TestArgsFallsBackToAnEmptyObject(t *testing.T) {
 }
 
 // A script with no run() is not an error: it executes for its side
-// effects and returns nothing.
+// effects, and what it leaves in state threads on unchanged.
 func TestScriptWithoutRunExecutesForSideEffects(t *testing.T) {
 	s := New()
 	logs, ret := turn(t, s, `log("side effect");`)
 	if !strings.Contains(logs, "side effect") {
 		t.Errorf("logs = %q", logs)
 	}
-	if string(ret) != "" && string(ret) != "null" {
-		t.Errorf("ret = %q, want nothing", ret)
+	if string(ret) != "{}" {
+		t.Errorf("ret = %q, want the untouched (empty) state", ret)
+	}
+}
+
+// state is the plain-script way to keep data: assign to it, and the next
+// turn finds it there — also as args, since both name the same value.
+func TestStateThreadsBetweenPlainScripts(t *testing.T) {
+	s := New()
+	_, ret := turn(t, s, `state.rows = [1, 2, 3]; const total = 6;`)
+	logs, ret2, err := s.ExecuteTurn(`state.total = state.rows.reduce((a, b) => a + b, 0); log(args.rows.length, state.total);`, ret)
+	if err != nil {
+		t.Fatalf("ExecuteTurn: %v", err)
+	}
+	if !strings.Contains(logs, "3 6") {
+		t.Errorf("logs = %q, want rows from the previous turn", logs)
+	}
+	if string(ret2) != `{"rows":[1,2,3],"total":6}` {
+		t.Errorf("ret = %s", ret2)
+	}
+	// Redeclaring a top-level const next turn is fine: each script runs in its own scope.
+	if _, _, err := s.ExecuteTurn(`const total = 1; state.n = total;`, ret2); err != nil {
+		t.Errorf("redeclared const: %v", err)
+	}
+}
+
+// A script that throws threads nothing: the loop keeps the previous
+// state, so a half-done step never leaks into the next turn.
+func TestStateUnchangedWhenScriptThrows(t *testing.T) {
+	s := New()
+	_, ret, err := s.ExecuteTurn(`state.partial = true; throw new Error("boom");`, []byte(`{"kept":1}`))
+	if err == nil {
+		t.Fatal("want the script error")
+	}
+	if ret != nil {
+		t.Errorf("ret = %s, want nil so the loop keeps prevArgs", ret)
 	}
 }
 
