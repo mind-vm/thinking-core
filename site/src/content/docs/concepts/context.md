@@ -16,9 +16,9 @@ Every turn sends a fixed floor before any conversation:
 
 | Piece | Bytes | ~tokens |
 |---|---|---|
-| Protocol prompt (`run(args)`/`answer()` contract) | 3,652 | ~910 |
-| Sandbox API declarations, `DefaultCapabilities` | 5,245 | ~1,310 |
-| **Total system prompt** | **8,915** | **~2,230** |
+| Protocol prompt (scripts, `state`, `answer()`) | 514 | ~130 |
+| Sandbox API declarations, `DefaultCapabilities` | 4,272 | ~1,070 |
+| **Total system prompt** | **4,804** | **~1,200** |
 
 That floor grows with every pack you register — the `ext` packs, and
 especially an OpenAPI-generated one, add more `declare` lines. On top of it

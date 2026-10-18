@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mind-vm/agentloop/browser"
-	"github.com/mind-vm/agentloop/sandbox"
+	"github.com/mind-vm/thinking-core/browser"
+	"github.com/mind-vm/thinking-core/sandbox"
 )
 
 // fakeDriver records every call as a "method:arg" line so a test can
@@ -466,7 +466,7 @@ func TestPack_DefaultPolicyBlocksPrivateNetwork(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected a private address to be denied")
 	}
-	if !strings.Contains(err.Error(), "private or internal") {
+	if !strings.Contains(err.Error(), "private and internal addresses are closed") {
 		t.Errorf("unexpected denial reason: %v", err)
 	}
 	if len(d.calls) != 0 {
@@ -485,7 +485,7 @@ func TestPack_DefaultPolicyHonoursAllowlist(t *testing.T) {
 		t.Fatalf("allowlisted URL was denied: %v", err)
 	}
 	_, err := s.Execute(`browser.goto("https://elsewhere.example.net/")`)
-	if err == nil || !strings.Contains(err.Error(), "not in the allowlist") {
+	if err == nil || !strings.Contains(err.Error(), "The URLs it may reach start with") {
 		t.Fatalf("off-allowlist URL: %v", err)
 	}
 	wantCalls(t, d.calls, []string{"Navigate:https://shop.example.com/cart"})

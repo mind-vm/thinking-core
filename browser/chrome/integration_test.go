@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mind-vm/agentloop/browser"
-	"github.com/mind-vm/agentloop/browser/chrome"
-	"github.com/mind-vm/agentloop/sandbox"
+	"github.com/mind-vm/thinking-core/browser"
+	"github.com/mind-vm/thinking-core/browser/chrome"
+	"github.com/mind-vm/thinking-core/sandbox"
 )
 
 // findChrome returns a Chrome binary to test against, or "" when the

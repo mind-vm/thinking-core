@@ -3,9 +3,9 @@ package browser_test
 import (
 	"context"
 
-	"github.com/mind-vm/agentloop"
-	"github.com/mind-vm/agentloop/browser"
-	"github.com/mind-vm/agentloop/sandbox"
+	"github.com/mind-vm/thinking-core/agentloop"
+	"github.com/mind-vm/thinking-core/browser"
+	"github.com/mind-vm/thinking-core/sandbox"
 )
 
 // ExamplePack shows the wiring an application supplies: a Driver it

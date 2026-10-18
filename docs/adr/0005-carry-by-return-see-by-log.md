@@ -1,9 +1,9 @@
 # ADR-0005: Carry by `return`, see by `log()` — and show shape, not values
 
-- **Status:** Working
+- **Status:** Replaced by [ADR-0017](0017-scripts-keep-data-in-state.md)
 - **Confidence:** High
 - **Decided:** 2026-06 (in `core/agentloop`), carried over 2026-08-21
-- **Last reviewed:** 2026-08-28
+- **Last reviewed:** 2026-10-18
 - **Consumers:** the library's public API — `RunResult.DataBytesCarried` exists
   to make the saving observable to a caller.
 
@@ -81,3 +81,7 @@ in `prompts.go` teaches `return`-to-carry / `log`-to-see.
   studio-apps ADR-0039: only the loop knows both the carried size and the digest
   it injected, so it cannot be measured after the fact.
 - 2026-08-28 — Recorded here retroactively.
+- 2026-10-18 — Replaced by [ADR-0017](0017-scripts-keep-data-in-state.md): the
+  carry moved from `return` to the persistent `state` object. What this record
+  argues — carry and see are separate channels, and the model is shown the
+  shape, not the values — holds unchanged there.

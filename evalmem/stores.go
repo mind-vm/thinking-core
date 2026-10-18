@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/mind-vm/agentloop/eval"
+	"github.com/mind-vm/thinking-core/eval"
 )
 
 // InMemoryStore is a thread-safe, map-backed eval.Store. Cases and

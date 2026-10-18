@@ -17,13 +17,13 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/mind-vm/agentloop"
-	"github.com/mind-vm/agentloop/agentloopmem"
-	"github.com/mind-vm/agentloop/agentloopsql"
-	"github.com/mind-vm/agentloop/llm"
-	"github.com/mind-vm/agentloop/projectctx"
-	"github.com/mind-vm/agentloop/sandbox"
-	"github.com/mind-vm/agentloop/skills"
+	"github.com/mind-vm/thinking-core/agentloop"
+	"github.com/mind-vm/thinking-core/agentloopmem"
+	"github.com/mind-vm/thinking-core/agentloopsql"
+	"github.com/mind-vm/thinking-core/llm"
+	"github.com/mind-vm/thinking-core/projectctx"
+	"github.com/mind-vm/thinking-core/sandbox"
+	"github.com/mind-vm/thinking-core/skills"
 )
 
 // options is one invocation's resolved configuration. Every field maps
@@ -306,7 +306,7 @@ func newSession(o *options, warn func(string), in *bufio.Reader) (*session, erro
 	//
 	// Not merely to save tokens: RunRequest.Context is appended to the
 	// SYSTEM prompt, and the budget never drops that — it is what
-	// carries the run()/answer() protocol and the whole tool surface. So
+	// carries the script/answer() protocol and the whole tool surface. So
 	// an oversized AGENTS.md is not a prompt that gets trimmed, it is a
 	// prompt that cannot be sent, and no budget setting rescues it. The
 	// excerpt is the only thing that does.
@@ -321,7 +321,7 @@ func newSession(o *options, warn func(string), in *bufio.Reader) (*session, erro
 	// /new changes it mid-process, and an approval must not carry across
 	// that boundary into a session the user meant to start clean.
 	prompter := newTerminalPrompter(in, os.Stderr, o.approval, store, func() string { return sess.id })
-	caps := buildCapabilities(o, client, prompter, root, warn)
+	caps := buildCapabilities(o, client, prompter, prompter.questions(), root, warn)
 	caps = append(caps, skills.Capabilities(sk)...)
 	if o.sized() {
 		// RenderCatalog writes pointers to projectGet(); without these

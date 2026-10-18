@@ -36,8 +36,6 @@ const (
 	EventSkillCall EventKind = "skill_call"
 	// EventAI fires when ai() / aiJSON() / aiSearch() runs.
 	EventAI EventKind = "ai"
-	// EventPlan fires when plan() emits a reasoning step.
-	EventPlan EventKind = "plan"
 	// EventEmail fires when sendEmail() attempts a send.
 	EventEmail EventKind = "email"
 	// EventCard fires when a card() primitive emits a structured

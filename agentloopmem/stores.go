@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mind-vm/agentloop"
+	"github.com/mind-vm/thinking-core/agentloop"
 )
 
 // SessionStore is an in-memory agentloop.SessionStore. New constructs

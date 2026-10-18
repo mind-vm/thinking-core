@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mind-vm/agentloop/ext"
-	"github.com/mind-vm/agentloop/sandbox"
+	"github.com/mind-vm/thinking-core/ext"
+	"github.com/mind-vm/thinking-core/sandbox"
 )
 
 // execAt builds a sandbox with the exec pack rooted at a temp directory.

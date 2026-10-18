@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mind-vm/agentloop"
-	"github.com/mind-vm/agentloop/agentloopmem"
-	"github.com/mind-vm/agentloop/llm"
+	"github.com/mind-vm/thinking-core/agentloop"
+	"github.com/mind-vm/thinking-core/agentloopmem"
+	"github.com/mind-vm/thinking-core/llm"
 )
 
 // TestE2E_FullLoop_WithMemoryStores wires the full agentloop stack
@@ -39,9 +39,8 @@ func TestE2E_FullLoop_WithMemoryStores(t *testing.T) {
 	})
 	steps := agentloopmem.NewStepStore()
 
-	// No capabilities needed — the loop runs in run(args)→return mode,
-	// so state is carried by the function return, not a capability
-	// pack. The builder still appends the meta packs (skill discovery,
+	// No capabilities needed — state is carried by the sandbox, not a
+	// capability pack. The builder still appends the meta packs (skill discovery,
 	// help). Real wiring layers in fetch/ai/etc. via Capabilities.
 	builder := &agentloop.DefaultSandboxBuilder{}
 
@@ -50,7 +49,7 @@ func TestE2E_FullLoop_WithMemoryStores(t *testing.T) {
 	// times in the expected sequence.
 	fake := &scriptedClient{
 		responses: []llm.CompletionResponse{
-			{Content: "```javascript\nfunction run(args) { return { count: 1 }; }\n```", InputTokens: 5, OutputTokens: 4},
+			{Content: "```javascript\nstate.count = 1;\n```", InputTokens: 5, OutputTokens: 4},
 			{Content: "DONE\nIncremented to 1.", InputTokens: 12, OutputTokens: 4},
 			{Content: "DONE\nStill 1, no work.", InputTokens: 20, OutputTokens: 3},
 		},

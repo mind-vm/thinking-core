@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -116,6 +117,23 @@ func TestPrivateAddressesAreDeniedByDefault(t *testing.T) {
 		"http://169.254.169.254/latest/meta-data/", // the cloud metadata endpoint
 		"http://[::1]/x", "http://[fd00::1]/x",
 		"http://0.0.0.0/x",
+		// Ranges net.IP's IsPrivate does not know.
+		"http://100.64.0.1/x",               // shared address space, Tailscale
+		"http://198.18.0.1/x",               // benchmarking
+		"http://192.0.2.1/x",                // documentation
+		"http://224.0.0.1/x",                // multicast
+		"http://240.0.0.1/x",                // reserved
+		"http://255.255.255.255/x",          // limited broadcast
+		"http://[64:ff9b::a9fe:a9fe]/x",     // NAT64 of the metadata service
+		"http://[2002:7f00:1::1]/x",         // 6to4 of loopback
+		"http://[::127.0.0.1]/x",            // IPv4-compatible loopback
+		"http://[::ffff:127.0.0.1]/x",       // IPv4-mapped loopback
+		"http://[::ffff:169.254.169.254]/x", // IPv4-mapped metadata service
+		"http://[::]/x",                     // unspecified
+		"http://[fe80::1%25eth0]/x",         // link-local with a zone
+		"http://[ff02::1]/x",                // multicast
+		"http://[2001:db8::1]/x",            // documentation
+		"http://[2001::1]/x",                // Teredo
 	}
 	for _, u := range private {
 		if res := check(t, p, "fetch", map[string]any{"url": u}); res.Allowed {
@@ -126,7 +144,11 @@ func TestPrivateAddressesAreDeniedByDefault(t *testing.T) {
 
 func TestPublicAddressesAreAllowedWithNoAllowlist(t *testing.T) {
 	var p DefaultPolicy
-	for _, u := range []string{"https://example.com/x", "https://8.8.8.8/x"} {
+	for _, u := range []string{
+		"https://example.com/x", "https://8.8.8.8/x",
+		"https://[2606:4700:4700::1111]/x", "https://[::ffff:8.8.8.8]/x",
+		"https://100.128.0.1/x", // just past shared address space
+	} {
 		if res := check(t, p, "fetch", map[string]any{"url": u}); !res.Allowed {
 			t.Errorf("%s should be allowed, got %q", u, res.Reason)
 		}
@@ -225,5 +247,39 @@ func TestNilPolicyFailsOpen(t *testing.T) {
 	}
 	if !res.Allowed {
 		t.Error("a sandbox with no policy should fail open")
+	}
+}
+
+// A refusal is read by the model, so it names what was refused and what
+// is permitted instead, and never a knob only the operator can turn.
+func TestRefusalsAreAddressedToTheModel(t *testing.T) {
+	cases := []struct {
+		p    DefaultPolicy
+		tool string
+		args map[string]any
+		want []string
+	}{
+		{DefaultPolicy{}, "writeFile", map[string]any{"path": "a.go"}, []string{"writeFile", "no file was changed", "report the exact change"}},
+		{DefaultPolicy{}, "exec", map[string]any{"command": "sh"}, []string{"no command can be run"}},
+		{DefaultPolicy{AllowCommands: []string{"go", "make"}}, "exec", map[string]any{"command": "sh"}, []string{`"sh"`, "go, make"}},
+		{DefaultPolicy{}, "sendEmail", nil, []string{"nothing was sent"}},
+		{DefaultPolicy{URLAllowPrefixes: []string{"https://api.example.com/"}}, "fetch", map[string]any{"url": "https://evil.example/"}, []string{"evil.example", "https://api.example.com/"}},
+		{DefaultPolicy{}, "fetch", map[string]any{"url": "http://127.0.0.1/"}, []string{"127.0.0.1", "public URLs"}},
+	}
+	for _, tc := range cases {
+		res := check(t, tc.p, tc.tool, tc.args)
+		if res.Allowed {
+			t.Fatalf("%s %v was allowed", tc.tool, tc.args)
+		}
+		for _, w := range tc.want {
+			if !strings.Contains(res.Reason, w) {
+				t.Errorf("%s refusal %q does not say %q", tc.tool, res.Reason, w)
+			}
+		}
+		for _, operator := range []string{"AllowTools", "PolicyChecker", "DefaultPolicy"} {
+			if strings.Contains(res.Reason, operator) {
+				t.Errorf("%s refusal %q is addressed to the operator (%s)", tc.tool, res.Reason, operator)
+			}
+		}
 	}
 }

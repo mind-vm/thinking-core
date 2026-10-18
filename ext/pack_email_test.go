@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mind-vm/agentloop/ext"
-	"github.com/mind-vm/agentloop/sandbox"
+	"github.com/mind-vm/thinking-core/ext"
+	"github.com/mind-vm/thinking-core/sandbox"
 )
 
 func TestEmailPack_Sends(t *testing.T) {
@@ -58,7 +58,7 @@ func TestEmailPack_DeniedByDefaultPolicy(t *testing.T) {
 	s := sandbox.New(ext.EmailPack(context.Background(), func(string, string, string) error { return nil }))
 	s.SetPolicy(sandbox.DefaultPolicy{})
 	_, err := s.Execute(`sendEmail({to: "a@b.c", subject: "s", body: "b"})`)
-	if err == nil || !strings.Contains(err.Error(), "denied by the default sandbox policy") {
+	if err == nil || !strings.Contains(err.Error(), "not permitted in this run") {
 		t.Fatalf("expected policy denial, got: %v", err)
 	}
 }

@@ -1,0 +1,157 @@
+package agentloop
+
+import (
+	"encoding/json"
+	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/mind-vm/thinking-core/llm"
+)
+
+// staleCodeMarker replaces the body of an already-executed script in the
+// history sent to the model. What it kept is in `state` and its
+// output in the result message that follows, so the verbatim source is
+// redundant.
+//
+// It is itself a script, because the model reads its own past turns as
+// examples of how to reply: a bare bracketed line got copied back as a
+// reply by models that imitate history. Copied, this one runs as a no-op
+// that leaves state alone.
+const staleCodeMarker = "```javascript\n// " + staleCodeNote + "\n```"
+
+const staleCodeNote = "earlier turn, body omitted: its logs are in the next message and what it kept is in state"
+
+// isStaleCodeCopy reports whether a reply's script is the marker copied
+// back. A model that sees several markers in a row continues the pattern,
+// and each copy is a turn that does nothing.
+func isStaleCodeCopy(code string) bool {
+	return strings.Contains(code, staleCodeNote)
+}
+
+// elideStaleCode returns a copy of history with every assistant message
+// at index >= fromIndex, except the most recent one overall, replaced by
+// a one-line marker. A past script's effect is fully captured by the
+// threaded `state` and the logs, so the only block worth keeping verbatim
+// is the latest one (which the model may need to repair on an
+// error-retry). This removes the triangular re-send of stale code that
+// otherwise dominates prompt growth. Non-assistant messages pass through
+// untouched.
+//
+// fromIndex marks where THIS run's own history additions begin (its
+// script blocks + execution-result turns) — everything before it is
+// real prior-conversation content, most importantly an earlier run's
+// actual final answer. Eliding indiscriminately across the whole
+// history would, once this run appends its own assistant turn,
+// overwrite that prior final answer with the stale-code marker even
+// though it was never a code block — corrupting the model's memory of
+// what it already told the user. Passing len(history) before this run
+// appends anything (as Run does) makes elision a same-run-only concern.
+func elideStaleCode(history []llm.Message, fromIndex int) []llm.Message {
+	lastAssistant := -1
+	for i, m := range history {
+		if m.Role == "assistant" {
+			lastAssistant = i
+		}
+	}
+	if lastAssistant < 0 {
+		return history
+	}
+	out := make([]llm.Message, len(history))
+	copy(out, history)
+	for i, m := range out {
+		// Only a reply that carried a script is stale: a plain-text reply,
+		// such as a plan written before the first script, is the model's
+		// reasoning and has nothing in args or the logs to stand in for it.
+		if m.Role == "assistant" && i >= fromIndex && i != lastAssistant && ExtractJSBlock(m.Content) != "" {
+			// The signatures stay: Gemini 3 replies normally to a history
+			// whose old bodies are elided as long as its signatures come
+			// back, and stops replying when they do not (codeloop
+			// findings, 2026-10-02).
+			out[i] = llm.Message{Role: "assistant", Content: staleCodeMarker, ThoughtSignatures: m.ThoughtSignatures}
+		}
+	}
+	return out
+}
+
+// dataShape renders a compact structural digest of a turn's return
+// value: keys and types, array lengths, nested field names — but NOT
+// the values. It is what the loop shows the model in place of the full
+// data blob, so the model knows which fields it can reach on next
+// turn's `args` without the values inflating the prompt.
+//
+// Rendered as a TypeScript type literal — e.g.
+// { rows: { title: string }[] /* 3 items */ } — so the model reads it
+// with the same instincts it applies to the ## Sandbox API declarations.
+func dataShape(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" || string(raw) == "{}" {
+		return ""
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return ""
+	}
+	return shapeOf(v, 0)
+}
+
+const (
+	shapeMaxDepth = 4
+	shapeMaxKeys  = 24
+)
+
+func shapeOf(v any, depth int) string {
+	switch t := v.(type) {
+	case map[string]any:
+		if depth >= shapeMaxDepth {
+			return "object"
+		}
+		keys := make([]string, 0, len(t))
+		for k := range t {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		truncated := 0
+		if len(keys) > shapeMaxKeys {
+			truncated = len(keys) - shapeMaxKeys
+			keys = keys[:shapeMaxKeys]
+		}
+		parts := make([]string, 0, len(keys)+1)
+		for _, k := range keys {
+			parts = append(parts, k+": "+shapeOf(t[k], depth+1))
+		}
+		if truncated > 0 {
+			parts = append(parts, fmt.Sprintf("/* +%d more keys */", truncated))
+		}
+		return "{ " + strings.Join(parts, "; ") + " }"
+	case []any:
+		if len(t) == 0 {
+			return "unknown[] /* empty */"
+		}
+		if depth >= shapeMaxDepth {
+			return fmt.Sprintf("unknown[] /* %d items */", len(t))
+		}
+		return fmt.Sprintf("%s[] /* %d items */", elemShape(t[0], depth+1), len(t))
+	case string:
+		return "string"
+	case float64, int, int64:
+		return "number"
+	case bool:
+		return "boolean"
+	case nil:
+		return "null"
+	default:
+		return "any"
+	}
+}
+
+// elemShape renders an array's element type for the `T[]` suffix form.
+// Object literals are already brace-delimited and primitives are single
+// words; any other composite shape is parenthesised so the [] suffix
+// binds unambiguously.
+func elemShape(v any, depth int) string {
+	s := shapeOf(v, depth)
+	if strings.HasPrefix(s, "{") || !strings.Contains(s, " ") {
+		return s
+	}
+	return "(" + s + ")"
+}

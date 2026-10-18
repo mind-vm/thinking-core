@@ -113,7 +113,7 @@ USAGE
 FLAGS
   --model string          chat model (default: $OPENAI_CHAT_MODEL)
   --max-steps int         cap LLM round-trips per run (default 20)
-  --timeout duration      wall-clock cap per run (default 5m)
+  --timeout duration      wall-clock cap per run (default 15m)
   --history-window int    prior steps rehydrated into context (default 80,
                           and overrides what --context-window derives)
   --context-window int    the model's SERVED context size in tokens; sizes the

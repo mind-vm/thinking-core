@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mind-vm/agentloop"
+	"github.com/mind-vm/thinking-core/agentloop"
 )
 
 // StepStoreHarness configures the StepStoreContract for a particular
@@ -175,6 +175,53 @@ func StepStoreContract(t *testing.T, h StepStoreHarness) {
 		// The two most recent are indices 3 and 4, returned oldest-first.
 		if got[0].StepIndex != 3 || got[1].StepIndex != 4 {
 			t.Errorf("LastN(2) indices: got [%d %d], want [3 4]", got[0].StepIndex, got[1].StepIndex)
+		}
+	})
+
+	// The loop derives StepIndex from the size of the history window it
+	// just read, so once a session outgrows HistoryWindow every new step
+	// carries the same index (agentloop/AGENTS.md, "StepIndex repeats").
+	// A store that orders by step_index passes every other case here and
+	// then returns an arbitrary window from a long session — which is the
+	// ordering guarantee above, silently broken. Order by insertion.
+	t.Run("LastN is insertion order when StepIndex repeats", func(t *testing.T) {
+		s := h.NewStore()
+		if h.EnsureSession != nil {
+			h.EnsureSession(sessMain)
+		}
+		// Two steps below the window, then several at the index a full
+		// window keeps producing. Content is what tells the rows apart,
+		// because the index no longer can.
+		type row struct {
+			index   int32
+			content string
+		}
+		rows := []row{{0, "first"}, {1, "second"}, {2, "third"}, {2, "fourth"}, {2, "fifth"}}
+		for i, r := range rows {
+			step := agentloop.RunStep{
+				SessionID: sessMain,
+				StepIndex: r.index,
+				StepType:  "response",
+				Content:   r.content,
+				ToolArgs:  []byte("{}"),
+				CreatedAt: base.Add(time.Duration(i) * time.Second),
+			}
+			if err := s.Append(ctx, step); err != nil {
+				t.Fatalf("Append %q: %v", r.content, err)
+			}
+		}
+		got, err := s.LastN(ctx, sessMain, 3)
+		if err != nil {
+			t.Fatalf("LastN: %v", err)
+		}
+		if len(got) != 3 {
+			t.Fatalf("want 3 rows, got %d", len(got))
+		}
+		want := []string{"third", "fourth", "fifth"}
+		for i, w := range want {
+			if got[i].Content != w {
+				t.Errorf("LastN(3)[%d]: Content got %q, want %q (rows must be the last three inserted, oldest-first, not ordered by StepIndex)", i, got[i].Content, w)
+			}
 		}
 	})
 

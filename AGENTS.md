@@ -1,4 +1,4 @@
-# Working in agentloop
+# Working in thinking-core
 
 A Go engine for LLM agents that think by writing JavaScript. The README's
 package list is the map; this file is the part the code does not tell you.
@@ -82,6 +82,7 @@ what CI runs. Cross-compile if you touched anything platform-specific; the
 build tags in `ext/pack_exec_*.go` are invisible to a host-only build.
 
 Cutting a release is not one of these steps, and it has rules the tooling
-will not remind you of — chiefly that the annotated tag message *is* the
-release page, and that a published version cannot be taken back. They are in
-[Releasing](README.md#releasing); read it before you tag, not after.
+will not remind you of — chiefly that the annotated tag message is the only
+explanation a version gets, and that a published version cannot be taken
+back. They are in [Releasing](README.md#releasing); read it before you tag,
+not after.

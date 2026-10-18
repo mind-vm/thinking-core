@@ -10,7 +10,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/mind-vm/agentloop/sandbox"
+	"github.com/mind-vm/thinking-core/sandbox"
 )
 
 // --- reading --------------------------------------------------------
@@ -28,6 +28,7 @@ func (w *workspace) readFile(name string, opts map[string]any) string {
 	if info.IsDir() {
 		w.throw("readFile: %s is a directory — use listDir", rel)
 	}
+	w.markRead(rel)
 
 	data, err := w.root.ReadFile(rel)
 	if err != nil {
@@ -130,8 +131,11 @@ func (w *workspace) writeFile(name string, content string) bool {
 	if info, err := w.root.Stat(rel); err == nil && info.IsDir() {
 		w.throw("writeFile: %s is a directory", rel)
 	}
+	w.refuse("writeFile", rel)
+	w.requireRead("writeFile", rel)
 
 	w.authorize("writeFile", rel)
+	w.beforeWrite(rel)
 
 	if dir := path.Dir(rel); dir != "." && dir != "/" {
 		if err := w.root.MkdirAll(dir, 0o755); err != nil {
@@ -157,6 +161,8 @@ func (w *workspace) editFile(name, find, replace string, opts map[string]any) in
 	if find == "" {
 		w.throw("editFile: the text to find must not be empty")
 	}
+	w.refuse("editFile", rel)
+	w.requireRead("editFile", rel)
 
 	data, err := w.root.ReadFile(rel)
 	if err != nil {
@@ -178,6 +184,7 @@ func (w *workspace) editFile(name, find, replace string, opts map[string]any) in
 	}
 
 	w.authorize("editFile", rel)
+	w.beforeWrite(rel)
 
 	replaced := 1
 	if all {
@@ -235,12 +242,13 @@ func (w *workspace) grep(pattern string, opts map[string]any) []map[string]any {
 		limit = w.opts.maxResults()
 	}
 	fileGlob := optString(opts, "glob")
-	if strings.TrimSpace(fileGlob) == "" {
+	explicitGlob := strings.TrimSpace(fileGlob) != ""
+	if !explicitGlob {
 		fileGlob = "**"
 	}
 
 	hits := make([]map[string]any, 0, 16)
-	_, err = w.walk(fileGlob, func(rel string) bool {
+	matched, err := w.walk(fileGlob, func(rel string) bool {
 		if len(hits) >= limit {
 			return false
 		}
@@ -264,6 +272,11 @@ func (w *workspace) grep(pattern string, opts map[string]any) []map[string]any {
 	})
 	if err != nil {
 		w.throw("grep: %v", err)
+	}
+	// An explicit glob that selects no files is almost always a mis-written
+	// one, and an empty result would read as "the pattern is not there".
+	if explicitGlob && len(matched) == 0 {
+		w.throw("grep: opts.glob %q matched no files, so nothing was searched. It is one glob pattern such as \"**/*.go\" or \"report.go\", not a list; call grep once per pattern, or omit glob to search every file", fileGlob)
 	}
 
 	w.sb.Emit(sandbox.Event{Kind: sandbox.EventFileRead, Summary: fmt.Sprintf("grep %s → %d match(es)", pattern, len(hits))})

@@ -1,23 +1,19 @@
-> **Archived.** Development continues in `mind-vm/platform`, where this library
-> lives as `agentloop/`. This repository is read-only and its history is preserved
-> there.
->
-> Everything released here — up to and including **v0.4.1** — stays MIT and
-> remains forkable; that is not retracted. New versions come from the platform
-> module, which is private (platform ADR-0001).
-
-# agentloop
+# thinking-core
 
 A small Go engine for LLM agents that think by writing JavaScript instead of
-calling named tools.
+calling named tools. (Its loop package is `agentloop`, which was also the
+repository's name until 2026-10.)
 
-Each turn the model emits one fenced ` ```javascript ` block defining
-`function run(args) { ... }`. agentloop executes it in a sandboxed
-[goja](https://github.com/dop251/goja) runtime and threads its return value
-into the next turn as `args` — full fidelity, server-side, never
-re-serialised into the prompt. The model sees only its own `log()` output
-plus a compact structural digest of what it returned. A run finishes when
-the script calls `answer(result)`.
+Each turn the model emits one fenced ` ```javascript ` block. thinking-core
+executes it in a sandboxed [goja](https://github.com/dop251/goja) runtime.
+The script keeps data by assigning to the persistent `state` object; state
+is threaded into the next turn — full fidelity, server-side, never
+re-serialised into the prompt. The model sees only its own `log()` output plus a compact structural
+digest of what it kept. A run finishes when the script calls `answer(result)`.
+
+```bash
+go get github.com/mind-vm/thinking-core
+```
 
 This return-threading design keeps the prompt small even for many-step
 runs: stale code is elided from history (only the most recent turn's script
@@ -74,7 +70,7 @@ is kept verbatim) and large data never appears in the context window twice.
   selector or a pixel coordinate. Optional vision (`ask` / `askMarks`)
   arrives as a callback, same decoupling `ext` uses. Every primitive
   goes through a ten-method `Driver`; the chromedp implementation is
-  a *separate module*, `github.com/mind-vm/agentloop/browser/chrome`,
+  a *separate module*, `github.com/mind-vm/thinking-core/browser/chrome`,
   so chromedp and cdproto stay off the dependency list of every
   deployment that never opens a browser.
 - **`pool`** — `SandboxPool`, a `SandboxBuilder` that reuses one
@@ -153,6 +149,16 @@ A failed request is retried up to three times by default — set
 `OPENAI_MAX_RETRIES` (or `llm.Config.MaxRetries`) to tune that, or to
 `0` to turn retrying off entirely.
 
+### Scripts and state
+
+The model writes plain scripts. Data it wants to keep goes into `state`
+(`state.rows = rows`, or `state = {…}`); the next script finds it there, and
+the model is shown its shape, not its values. A script that throws leaves
+state as it was. Each script runs in its own scope, so locals do not leak
+and a top-level `const` can be declared again next turn. The whole protocol
+prompt is four lines (`TextEmissionSystemPrompt`); `RunRequest.InitialState`
+seeds state for the first script.
+
 ## The CLI
 
 [`cmd/agentloop`](cmd/agentloop) is the engine as a command. It discovers
@@ -160,7 +166,7 @@ A failed request is retried up to three times by default — set
 default capability bundle, and runs turns:
 
 ```sh
-go install github.com/mind-vm/agentloop/cmd/agentloop@latest
+go install github.com/mind-vm/thinking-core/cmd/agentloop@latest
 
 agentloop "What's 12 * 7? Reply with just the number."
 agentloop chat
@@ -303,6 +309,14 @@ is never persisted, so a later run is free to allow what an earlier one
 declined. `agentloop sessions show <id>` lists what a session has
 approved and `agentloop sessions revoke <id>` forgets it.
 
+A question is not a permission. The agent can also `ask()` you something
+— a yes/no, a choice, a line of text — and the answer goes back into its
+script. Those arrive at the same terminal but are never remembered: a
+yes to "archive the stale drafts?" is not a standing grant, is not
+answered on your behalf next time, and does not appear in `sessions
+show`. Under `--approve auto` or `deny` a question has no answer, so
+`ask()` fails and the agent is told so.
+
 [`examples/cli`](examples/cli) stays as the minimal library demo — one
 `Run` call in 100 lines, which is the thing to read when embedding the
 engine rather than running it.
@@ -315,49 +329,35 @@ handful of behaviours that are load-bearing in ways the types do not show.
 It is written for an agent working here, and is the fastest orientation for
 a person too.
 
-CI runs `gofmt`, `go vet`, and `go test -race` on Linux and macOS, and
-cross-compiles for every target the CLI is released for — which is what
-catches a build-tag mistake in the platform-specific files.
+CI runs `gofmt`, `go vet`, and `go test -race` on Linux. It does not
+cross-compile, so a build-tag mistake in the platform-specific files
+(`ext/pack_exec_*.go`) is yours to catch: `GOOS=windows go build ./...`
+before you push anything that touches them.
 
 ## Releasing
 
-A release is an annotated tag. Push `vX.Y.Z` and
-[`release.yml`](.github/workflows/release.yml) runs the suite once more, then
-has GoReleaser build and publish the CLI binaries.
+A release is an annotated tag on `main`, and that is all it is. A `v*`
+tag is already a Go module version — `go get` resolves it the moment it is
+pushed — and nothing runs on it: no workflow, no binaries, no release page.
+Anyone who wants a command builds it with `go install`.
 
-**The tag message is the release page.** Its first line is the version, which
-GitHub prints as the title and GoReleaser drops from the body; everything
-after it becomes the text above the generated commit list. That list says
-what moved. Only the tag message can say why the number moved, what an
-upgrade costs, or what cannot be undone — so write it as the explanation, not
-as a label. `git tag -a vX.Y.Z` with no `-m` opens an editor for it.
+**The tag message is the release's only explanation.** Its first line is
+the version; everything after it is the reason the number moved, what an
+upgrade costs, and what cannot be undone. `git log` says what moved; only
+the tag says why. `git tag -a vX.Y.Z` with no `-m` opens an editor for it.
 
-Four things will catch you, roughly in the order they do:
+Three things will catch you:
 
-- **A lightweight tag publishes an empty explanation.** `git tag vX.Y.Z`
-  without `-a` is valid, triggers the whole workflow, and ships a release
-  page with nothing above the changelog.
-- **`{{` in the message fails the publish.** The header is a Go template, so
-  braces are the one sequence a tag message cannot contain — and it fails at
-  publish time, which no dry run reaches.
+- **A lightweight tag explains nothing.** `git tag vX.Y.Z` without `-a` is
+  a valid version with no message behind it.
 - **A version cannot be recalled.** `proxy.golang.org` caches a module
   version permanently, and pkg.go.dev reads the licence out of that cached
   zip; [ADR-0016](docs/adr/0016-mit-and-public.md) is what that costs when it
   goes wrong. A mistake is fixed by cutting the next patch, never by moving
   the tag.
 - **`browser/chrome` is a separate module.** It carries its own
-  `browser/chrome/vX.Y.Z` tags and its own `require` on this module, and the
-  workflow does not build it — `tags: ["v*"]` cannot match a tag with slashes
-  in it. Tag it after the release its `require` names.
-
-`goreleaser release --snapshot --clean` builds every target and archive
-locally, with no tag, token, or network publish, and is the cheapest check
-that a config change did not break the build. It cannot render the header:
-GoReleaser composes the release body only when publishing.
-
-To finish a publish that half-failed, dispatch the workflow and give it the
-tag. GoReleaser runs in `keep-existing` mode, so it adds the missing
-artifacts and leaves the notes alone.
+  `browser/chrome/vX.Y.Z` tags and its own `require` on this module. Tag it
+  after the release its `require` names.
 
 ## Extending
 
@@ -381,7 +381,7 @@ artifacts and leaves the notes alone.
   `agentloop.SummarizingCompactor` is the batteries-included
   implementation: past `Trigger` messages it summarizes everything
   except the most recent `Keep` via an `llm.Client` (point it at a small,
-  cheap model), and it never splits a `run()` block from the execution
+  cheap model), and it never splits a script block from the execution
   result it produced. A session long enough to need compaction can be
   long enough to overflow the context of the call meant to fix that, so
   the transcript is summarized in **chunks** that each fit one call and
@@ -423,7 +423,7 @@ artifacts and leaves the notes alone.
   the history, which is the only point where the real size is knowable.
   The system prompt and the current turn are never dropped; the oldest
   conversational turns go first, an execution result is never stranded
-  from the `run()` block that produced it, and a marker tells the model
+  from the script block that produced it, and a marker tells the model
   how many turns are gone so it doesn't quietly assume what they
   contained. Every trim emits a `budget_trimmed` event and every turn
   span carries `agentloop.budget.estimated_tokens` against
@@ -526,6 +526,15 @@ artifacts and leaves the notes alone.
   primitives (`fetch`, `ai`, or your own) per call. `sandbox.DefaultPolicy`
   is a conservative default (deny side effects, block private-network
   fetches); `sandbox.AllowAll` is the explicit fail-open escape hatch.
+- **Human in the loop** — `sandbox.InputPack(requester)` gives the agent
+  `ask()`: a confirm, choice or text question the script blocks on. It is
+  not in `DefaultCapabilities`, because nothing generic knows whether
+  there is a human or how to reach one — wrap it in a `Capability` that
+  closes over your transport, as `cmd/agentloop` does over the terminal.
+  The `InputRequester` it takes is the same one `FetchPack` uses for
+  domain approvals. A nil requester documents `ask()` and errors when it
+  is called, so an unattended run fails in the script, where the model
+  can plan around it, rather than in the parser.
 - **Optional extension packs** — `ext.EmailPack`, `ext.SecretPack`,
   `ext.SearchPack`, and `ext.StoresPack` are common but not universal, so
   they live outside `sandbox` and aren't in `DefaultCapabilities`. Wrap
@@ -686,6 +695,28 @@ Two places take one:
   this a case that happens to trigger a credential-bearing response
   would send it on to the judge and store it in the run.
 
+## Reasoning models and thought signatures
+
+Gemini 3 attaches an opaque `thought_signature` to every reply and needs
+it back on later turns. Without it the model loses its reasoning thread
+and, a few turns into a session, replies with nothing or with a call to a
+function it was never offered. OpenAI-compatible proxies built on LiteLLM
+(Eden among them) carry the signatures in `provider_specific_fields`.
+agentloop keeps them:
+
+- `llm.CompletionResponse.ThoughtSignatures` holds them, streamed or not.
+- The loop puts them on the assistant `llm.Message`, and the OpenAI
+  client sends them back in `provider_specific_fields`, on assistant
+  messages only.
+- They are persisted in the step's `ToolArgs`, so a later `Run`
+  rehydrates them, and stale-code elision keeps them when it replaces an
+  old script's body.
+
+A host that sends no signatures sees no change. The measurement behind
+this is in `labs/codeloop/docs/findings.md` (2026-10-02): with the
+signatures dropped, replayed requests came back empty 7 times in 8; sent
+back, 8 times in 8 they came back as scripts.
+
 ## Known limitations
 
 This is a synchronous, single-process design, not a durable workflow
@@ -701,7 +732,7 @@ engine:
 - **Process-level isolation only.** goja is memory-safe and
   interruptible, but sandboxes share the host process's heap/CPU — no
   per-run resource quota.
-- **Unbounded args carry.** Nothing caps the size of the server-side
+- **Unbounded state carry.** Nothing caps the size of the server-side
   state threaded between turns (`RunResult.DataBytesCarried` gives you
   the observability to notice, not a limit).
 - **No built-in cost ceiling.** `MaxIterations` bounds turns and token
@@ -721,4 +752,4 @@ record is where it says what would make it wrong.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Proprietary — see [LICENSE](../LICENSE). All rights reserved.

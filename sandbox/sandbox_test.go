@@ -9,7 +9,7 @@ import (
 	"github.com/dop251/goja"
 )
 
-// turn runs one script through ExecuteTurn with no incoming args.
+// turn runs one script through ExecuteTurn with an empty state.
 func turn(t *testing.T, s *Sandbox, code string) (logs string, ret json.RawMessage) {
 	t.Helper()
 	logs, ret, err := s.ExecuteTurn(code, nil)
@@ -21,18 +21,18 @@ func turn(t *testing.T, s *Sandbox, code string) (logs string, ret json.RawMessa
 
 // --- the return-threading contract ----------------------------------
 
-// The whole design rests on this: what run() returns comes back as
-// JSON, and arrives as `args` next turn without passing through a
+// The whole design rests on this: what a script leaves in state comes
+// back as JSON, and is state again next turn without passing through a
 // prompt.
-func TestExecuteTurnThreadsTheReturnValue(t *testing.T) {
+func TestExecuteTurnThreadsState(t *testing.T) {
 	s := New()
 
-	_, ret := turn(t, s, `function run(args) { return { n: 6 * 7, items: ["a", "b"] }; }`)
+	_, ret := turn(t, s, `state.n = 6 * 7; state.items = ["a", "b"];`)
 	if got := string(ret); got != `{"items":["a","b"],"n":42}` && got != `{"n":42,"items":["a","b"]}` {
 		t.Fatalf("returned %s", got)
 	}
 
-	_, ret2, err := s.ExecuteTurn(`function run(args) { return { doubled: args.n * 2, first: args.items[0] }; }`, ret)
+	_, ret2, err := s.ExecuteTurn(`state.doubled = state.n * 2; state.first = state.items[0];`, ret)
 	if err != nil {
 		t.Fatalf("second turn: %v", err)
 	}
@@ -40,8 +40,8 @@ func TestExecuteTurnThreadsTheReturnValue(t *testing.T) {
 	if err := json.Unmarshal(ret2, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if got["doubled"] != float64(84) || got["first"] != "a" {
-		t.Errorf("args did not arrive intact: %v", got)
+	if got["doubled"] != float64(84) || got["first"] != "a" || got["n"] != float64(42) {
+		t.Errorf("state did not arrive intact: %v", got)
 	}
 }
 
@@ -56,7 +56,7 @@ func TestArgsFallsBackToAnEmptyObject(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			s := New()
-			_, ret, err := s.ExecuteTurn(`function run(args) { return { type: typeof args, keys: Object.keys(args).length }; }`, blob)
+			_, ret, err := s.ExecuteTurn(`state = (function(args){ return { type: typeof args, keys: Object.keys(args).length }; })(state);`, blob)
 			if err != nil {
 				t.Fatalf("ExecuteTurn: %v", err)
 			}
@@ -67,16 +67,63 @@ func TestArgsFallsBackToAnEmptyObject(t *testing.T) {
 	}
 }
 
-// A script with no run() is not an error: it executes for its side
-// effects and returns nothing.
+// A script that keeps nothing is not an error: it executes for its side
+// effects, and what it leaves in state threads on unchanged.
 func TestScriptWithoutRunExecutesForSideEffects(t *testing.T) {
 	s := New()
 	logs, ret := turn(t, s, `log("side effect");`)
 	if !strings.Contains(logs, "side effect") {
 		t.Errorf("logs = %q", logs)
 	}
-	if string(ret) != "" && string(ret) != "null" {
-		t.Errorf("ret = %q, want nothing", ret)
+	if string(ret) != "{}" {
+		t.Errorf("ret = %q, want the untouched (empty) state", ret)
+	}
+}
+
+// state is how a script keeps data: assign to it, and the next turn finds
+// it there.
+func TestStateThreadsBetweenPlainScripts(t *testing.T) {
+	s := New()
+	_, ret := turn(t, s, `state.rows = [1, 2, 3]; const total = 6;`)
+	logs, ret2, err := s.ExecuteTurn(`state.total = state.rows.reduce((a, b) => a + b, 0); log(state.rows.length, state.total);`, ret)
+	if err != nil {
+		t.Fatalf("ExecuteTurn: %v", err)
+	}
+	if !strings.Contains(logs, "3 6") {
+		t.Errorf("logs = %q, want rows from the previous turn", logs)
+	}
+	if string(ret2) != `{"rows":[1,2,3],"total":6}` {
+		t.Errorf("ret = %s", ret2)
+	}
+	// Redeclaring a top-level const next turn is fine: each script runs in its own scope.
+	if _, _, err := s.ExecuteTurn(`const total = 1; state.n = total;`, ret2); err != nil {
+		t.Errorf("redeclared const: %v", err)
+	}
+}
+
+// A script that throws threads nothing: the loop keeps the previous
+// state, so a half-done step never leaks into the next turn.
+func TestStateUnchangedWhenScriptThrows(t *testing.T) {
+	s := New()
+	_, ret, err := s.ExecuteTurn(`state.partial = true; throw new Error("boom");`, []byte(`{"kept":1}`))
+	if err == nil {
+		t.Fatal("want the script error")
+	}
+	if ret != nil {
+		t.Errorf("ret = %s, want nil so the loop keeps prevState", ret)
+	}
+}
+
+// Replacing state outright carries too: it is read back after the script.
+func TestStateCanBeReplaced(t *testing.T) {
+	s := New()
+	_, ret := turn(t, s, `state = { n: 6 * 7 };`)
+	_, ret2, err := s.ExecuteTurn(`state = { doubled: state.n * 2 };`, ret)
+	if err != nil {
+		t.Fatalf("second turn: %v", err)
+	}
+	if string(ret2) != `{"doubled":84}` {
+		t.Errorf("ret = %s, want {\"doubled\":84}", ret2)
 	}
 }
 
@@ -84,7 +131,7 @@ func TestScriptWithoutRunExecutesForSideEffects(t *testing.T) {
 
 func TestAnswerEndsTheRun(t *testing.T) {
 	s := New()
-	turn(t, s, `function run(args) { answer("the result"); }`)
+	turn(t, s, `state = (function(args){ answer("the result"); })(state);`)
 
 	value, ok := s.TakeAnswer()
 	if !ok {
@@ -98,7 +145,7 @@ func TestAnswerEndsTheRun(t *testing.T) {
 // Documented behaviour: calling it more than once keeps the last value.
 func TestAnswerKeepsTheLastValue(t *testing.T) {
 	s := New()
-	turn(t, s, `function run(args) { answer("first"); answer("second"); }`)
+	turn(t, s, `state = (function(args){ answer("first"); answer("second"); })(state);`)
 
 	value, ok := s.TakeAnswer()
 	if !ok || value != "second" {
@@ -108,7 +155,7 @@ func TestAnswerKeepsTheLastValue(t *testing.T) {
 
 func TestNoAnswerReportsNone(t *testing.T) {
 	s := New()
-	turn(t, s, `function run(args) { return 1; }`)
+	turn(t, s, `state = (function(args){ return 1; })(state);`)
 	if _, ok := s.TakeAnswer(); ok {
 		t.Error("a run that never called answer() should report none")
 	}
@@ -118,11 +165,11 @@ func TestNoAnswerReportsNone(t *testing.T) {
 // one, or a later turn inherits a conclusion it never reached.
 func TestAnswerDoesNotSurviveIntoTheNextTurn(t *testing.T) {
 	s := New()
-	turn(t, s, `function run(args) { answer("from the first turn"); }`)
+	turn(t, s, `state = (function(args){ answer("from the first turn"); })(state);`)
 	if _, ok := s.TakeAnswer(); !ok {
 		t.Fatal("first turn should have answered")
 	}
-	turn(t, s, `function run(args) { return 1; }`)
+	turn(t, s, `state = (function(args){ return 1; })(state);`)
 	if value, ok := s.TakeAnswer(); ok {
 		t.Errorf("second turn reported an answer of %q", value)
 	}
@@ -137,7 +184,7 @@ func TestGlobalsDoNotLeakBetweenTurns(t *testing.T) {
 	s := New()
 	turn(t, s, `globalThis.leaked = "from the first turn"; var alsoLeaked = 1;`)
 
-	_, ret := turn(t, s, `function run(args) { return { leaked: typeof globalThis.leaked }; }`)
+	_, ret := turn(t, s, `state = (function(args){ return { leaked: typeof globalThis.leaked }; })(state);`)
 	if !strings.Contains(string(ret), `"leaked":"undefined"`) {
 		t.Errorf("a global survived the turn boundary: %s", ret)
 	}
@@ -160,7 +207,7 @@ func TestLogsAreClearedBetweenTurns(t *testing.T) {
 
 func TestScriptErrorIsReturnedWithItsLogs(t *testing.T) {
 	s := New()
-	logs, ret, err := s.ExecuteTurn(`function run(args) { log("got this far"); throw new Error("boom"); }`, nil)
+	logs, ret, err := s.ExecuteTurn(`state = (function(args){ log("got this far"); throw new Error("boom"); })(state);`, nil)
 	if err == nil {
 		t.Fatal("want an error")
 	}
@@ -190,7 +237,7 @@ func TestPackPanicIsRecovered(t *testing.T) {
 	}
 	s := New(exploding)
 
-	_, _, err := s.ExecuteTurn(`function run(args) { return explode(); }`, nil)
+	_, _, err := s.ExecuteTurn(`state = (function(args){ return explode(); })(state);`, nil)
 	if err == nil {
 		t.Fatal("want an error")
 	}
@@ -199,7 +246,7 @@ func TestPackPanicIsRecovered(t *testing.T) {
 	}
 
 	// Still usable afterwards.
-	if _, ret := turn(t, s, `function run(args) { return 1; }`); string(ret) != "1" {
+	if _, ret := turn(t, s, `state = (function(args){ return 1; })(state);`); string(ret) != "1" {
 		t.Errorf("the sandbox did not survive the panic: %s", ret)
 	}
 }
@@ -211,7 +258,7 @@ func TestExecutionTimeoutInterruptsARunawayLoop(t *testing.T) {
 	s.SetExecTimeout(100 * time.Millisecond)
 
 	start := time.Now()
-	_, _, err := s.ExecuteTurn(`function run(args) { while (true) {} }`, nil)
+	_, _, err := s.ExecuteTurn(`state = (function(args){ while (true) {} })(state);`, nil)
 	elapsed := time.Since(start)
 
 	if err == nil {
@@ -227,12 +274,12 @@ func TestExecutionTimeoutInterruptsARunawayLoop(t *testing.T) {
 func TestSandboxIsUsableAfterATimeout(t *testing.T) {
 	s := New()
 	s.SetExecTimeout(100 * time.Millisecond)
-	if _, _, err := s.ExecuteTurn(`function run(args) { while (true) {} }`, nil); err == nil {
+	if _, _, err := s.ExecuteTurn(`state = (function(args){ while (true) {} })(state);`, nil); err == nil {
 		t.Fatal("want a timeout")
 	}
 
 	s.SetExecTimeout(5 * time.Second)
-	if _, ret := turn(t, s, `function run(args) { return "recovered"; }`); string(ret) != `"recovered"` {
+	if _, ret := turn(t, s, `state = (function(args){ return "recovered"; })(state);`); string(ret) != `"recovered"` {
 		t.Errorf("ret = %s", ret)
 	}
 }
@@ -244,7 +291,7 @@ func TestTurnEmitsScriptAndResultEvents(t *testing.T) {
 	s := New()
 	s.SetOnEvent(func(e Event) { kinds = append(kinds, e.Kind) })
 
-	turn(t, s, `function run(args) { return 1; }`)
+	turn(t, s, `state = (function(args){ return 1; })(state);`)
 
 	if len(kinds) < 2 || kinds[0] != EventScript || kinds[len(kinds)-1] != EventScriptResult {
 		t.Errorf("kinds = %v, want script … script_result", kinds)
@@ -256,7 +303,7 @@ func TestFailedTurnEmitsAnErrorEvent(t *testing.T) {
 	s := New()
 	s.SetOnEvent(func(e Event) { kinds = append(kinds, e.Kind) })
 
-	if _, _, err := s.ExecuteTurn(`function run(args) { throw new Error("boom"); }`, nil); err == nil {
+	if _, _, err := s.ExecuteTurn(`state = (function(args){ throw new Error("boom"); })(state);`, nil); err == nil {
 		t.Fatal("want an error")
 	}
 	var sawError bool
@@ -334,5 +381,44 @@ func TestExecuteReturnsTheLastExpression(t *testing.T) {
 	}
 	if !strings.Contains(got, "42") {
 		t.Errorf("Execute = %q, want it to carry 42", got)
+	}
+}
+
+// The reply's data blocks reach the script as a real array of strings.
+func TestBlocksAreInjected(t *testing.T) {
+	s := New()
+	s.SetBlocks([]string{"a `raw` line", "second"})
+	_, ret := turn(t, s, `state = { n: blocks.length, first: blocks[0], isArray: Array.isArray(blocks) };`)
+	for _, want := range []string{`"n":2`, `"isArray":true`, "`raw`"} {
+		if !strings.Contains(string(ret), want) {
+			t.Errorf("ret = %s, missing %s", ret, want)
+		}
+	}
+	s.SetBlocks(nil)
+	_, ret = turn(t, s, `state = { n: blocks.length };`)
+	if string(ret) != `{"n":0}` {
+		t.Errorf("no blocks: ret = %s, want {\"n\":0}", ret)
+	}
+}
+
+// A logged object whose strings span lines reads as text, not as one line
+// of escapes; a one-line object keeps compact JSON, and a Go-returned map
+// (what exec gives back) is rendered the same way.
+func TestLoggedMultilineObjectsAreReadable(t *testing.T) {
+	s := New(Pack{Name: "run", Register: func(rt *goja.Runtime, _ *Sandbox) {
+		_ = rt.Set("fakeExec", func() map[string]any {
+			return map[string]any{"code": 0, "stdout": "=== RUN   TestA\n--- PASS: TestA\n", "stderr": ""}
+		})
+	}})
+	logs, _ := turn(t, s, `console.log("result:", fakeExec()); console.log({a: 1, b: "x"}); console.error({msg: "say \"hi\"\nthen go"});`)
+	for _, want := range []string{
+		"result: {\n  \"code\": 0\n",
+		"\"stdout\": |\n    === RUN   TestA\n    --- PASS: TestA\n",
+		`{"a":1,"b":"x"}`,
+		"[error] {\n  \"msg\": |\n    say \"hi\"\n    then go\n}",
+	} {
+		if !strings.Contains(logs, want) {
+			t.Errorf("logs lack %q:\n%s", want, logs)
+		}
 	}
 }

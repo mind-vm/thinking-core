@@ -26,15 +26,36 @@ const (
 
 // Config configures the OpenAI-compatible client.
 type Config struct {
-	APIKey          string
+	APIKey string
+	// TokenSource, when set, supplies the bearer token per request in
+	// place of APIKey, for providers whose credentials expire (Vertex AI
+	// via GoogleWIF).
+	TokenSource     TokenSource
 	ChatModel       string
 	BaseURL         string
 	ReasoningEffort string
 	// Headers carries extra request headers some gateways require or
 	// recommend — e.g. OpenRouter's optional HTTP-Referer / X-Title.
 	Headers map[string]string
-	// HTTPClient is optional; nil falls back to a 5-minute-timeout client.
+	// HTTPClient is optional; nil builds one whose only limit is
+	// IdleTimeout. A client passed here keeps its own Timeout, which caps
+	// a whole call however steadily it streams — set none on it if a
+	// thinking model's long answers are expected.
 	HTTPClient *http.Client
+
+	// IdleTimeout is the longest a call waits without receiving anything
+	// from the upstream: for the response headers, and then between two
+	// lines of a streamed body. A stream that keeps sending runs as long
+	// as the caller's context allows. A non-streamed completion sends
+	// nothing until it is done, so for Complete this is the whole call.
+	// Zero uses DefaultIdleTimeout; negative disables it.
+	//
+	// It replaces a wall-clock cap on the request, which labs/codeloop
+	// found cutting off calls that were working: a host producing 20
+	// tokens a second takes minutes over a turn that thinks for a few
+	// thousand, and a total cap cannot tell that from a host that has
+	// stopped sending.
+	IdleTimeout time.Duration
 
 	// MaxRetries caps how many extra attempts a /chat/completions
 	// request gets after its first one fails retryably — a transport
@@ -95,10 +116,19 @@ func envOr(name, def string) string {
 	return def
 }
 
+// DefaultIdleTimeout is Config.IdleTimeout's default: the longest a call
+// waits in silence before it is abandoned.
+const DefaultIdleTimeout = 5 * time.Minute
+
+// ErrIdle reports a call abandoned because the upstream sent nothing for
+// Config.IdleTimeout — a stalled host, as against a slow one.
+var ErrIdle = errors.New("llm: the upstream sent nothing within the idle timeout")
+
 // openAIClient implements Client against an OpenAI-wire-compatible
 // POST {baseURL}/chat/completions endpoint.
 type openAIClient struct {
 	apiKey          string
+	tokenSource     TokenSource
 	baseURL         string
 	chatModel       string
 	reasoningEffort string
@@ -106,18 +136,27 @@ type openAIClient struct {
 	http            *http.Client
 	maxRetries      int
 	retryBaseDelay  time.Duration
+	idleTimeout     time.Duration // <= 0: no idle watchdog on a stream
 }
 
-// NewOpenAI builds a Client from cfg. Returns an error if APIKey is
-// empty — the caller decides what a missing key means for the run it's
+// NewOpenAI builds a Client from cfg. Returns an error if both APIKey
+// and TokenSource are empty — the caller decides what a missing key means for the run it's
 // building (e.g. skip registering the "ai" capability).
 func NewOpenAI(cfg Config) (Client, error) {
-	if cfg.APIKey == "" {
+	if cfg.APIKey == "" && cfg.TokenSource == nil {
 		return nil, errors.New("llm: OPENAI_API_KEY is not set")
+	}
+	idle := cfg.IdleTimeout
+	if idle == 0 {
+		idle = DefaultIdleTimeout
 	}
 	hc := cfg.HTTPClient
 	if hc == nil {
-		hc = &http.Client{Timeout: 5 * time.Minute}
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		if idle > 0 {
+			transport.ResponseHeaderTimeout = idle
+		}
+		hc = &http.Client{Transport: transport}
 	}
 	maxRetries := cfg.MaxRetries
 	switch {
@@ -132,6 +171,7 @@ func NewOpenAI(cfg Config) (Client, error) {
 	}
 	return &openAIClient{
 		apiKey:          cfg.APIKey,
+		tokenSource:     cfg.TokenSource,
 		baseURL:         strings.TrimRight(orDefault(cfg.BaseURL, defaultBaseURL), "/"),
 		chatModel:       orDefault(cfg.ChatModel, defaultChatModel),
 		reasoningEffort: cfg.ReasoningEffort,
@@ -139,6 +179,7 @@ func NewOpenAI(cfg Config) (Client, error) {
 		http:            hc,
 		maxRetries:      maxRetries,
 		retryBaseDelay:  retryBaseDelay,
+		idleTimeout:     idle,
 	}, nil
 }
 
@@ -168,13 +209,7 @@ func (c *openAIClient) Complete(ctx context.Context, req CompletionRequest) (Com
 		return CompletionResponse{}, err
 	}
 	out := CompletionResponse{Model: model}
-	if len(parsed.Choices) > 0 {
-		out.Content = parsed.Choices[0].Message.Content
-	}
-	if parsed.Usage != nil {
-		out.InputTokens = parsed.Usage.PromptTokens
-		out.OutputTokens = parsed.Usage.CompletionTokens
-	}
+	parsed.fill(&out)
 	return out, nil
 }
 
@@ -225,19 +260,33 @@ func (c *openAIClient) streamChat(ctx context.Context, model string, wire chatRe
 	if err != nil {
 		return CompletionResponse{}, fmt.Errorf("llm: stream marshal: %w", err)
 	}
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
 	respBody, err := c.doJSONPost(ctx, "/chat/completions", body)
 	if err != nil {
 		return CompletionResponse{}, err
 	}
 	defer func() { _ = respBody.Close() }()
 
+	// The watchdog is reset by every line the upstream sends, so it
+	// fires only on silence; cancelling ctx aborts the blocked read.
+	alive := func() {}
+	if c.idleTimeout > 0 {
+		watchdog := time.AfterFunc(c.idleTimeout, func() {
+			cancel(fmt.Errorf("%w (%s)", ErrIdle, c.idleTimeout))
+		})
+		defer watchdog.Stop()
+		alive = func() { watchdog.Reset(c.idleTimeout) }
+	}
+
 	out := CompletionResponse{Model: model}
-	var content strings.Builder
+	var content, reasoning strings.Builder
 	sawFrame := false
 	var raw strings.Builder // non-SSE body, kept in case the upstream ignored stream:true
 	scanner := bufio.NewScanner(respBody)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
+		alive()
 		line := scanner.Text()
 		data, ok := strings.CutPrefix(line, "data:")
 		if !ok {
@@ -257,19 +306,29 @@ func (c *openAIClient) streamChat(ctx context.Context, model string, wire chatRe
 			continue // one malformed frame shouldn't kill the stream
 		}
 		if len(chunk.Choices) > 0 {
-			if delta := chunk.Choices[0].Delta.Content; delta != "" {
+			choice := chunk.Choices[0]
+			if delta := choice.Delta.Content; delta != "" {
 				content.WriteString(delta)
 				if onChunk != nil {
 					onChunk(delta)
 				}
 			}
+			reasoning.WriteString(choice.Delta.thinking())
+			if f := choice.Delta.ProviderSpecificFields; f != nil {
+				out.ThoughtSignatures = append(out.ThoughtSignatures, f.ThoughtSignatures...)
+			}
+			if choice.FinishReason != "" {
+				out.FinishReason = choice.FinishReason
+			}
 		}
 		if chunk.Usage != nil {
-			out.InputTokens = chunk.Usage.PromptTokens
-			out.OutputTokens = chunk.Usage.CompletionTokens
+			chunk.Usage.fill(&out)
 		}
 	}
 	if err := scanner.Err(); err != nil {
+		if cause := context.Cause(ctx); errors.Is(cause, ErrIdle) {
+			return CompletionResponse{}, fmt.Errorf("llm: stream read: %w", cause)
+		}
 		return CompletionResponse{}, fmt.Errorf("llm: stream read: %w", err)
 	}
 	if !sawFrame {
@@ -277,19 +336,14 @@ func (c *openAIClient) streamChat(ctx context.Context, model string, wire chatRe
 		if err := json.Unmarshal([]byte(raw.String()), &parsed); err != nil {
 			return CompletionResponse{}, fmt.Errorf("llm: stream: no SSE frames and body not a completion: %w", err)
 		}
-		if len(parsed.Choices) > 0 {
-			out.Content = parsed.Choices[0].Message.Content
-			if onChunk != nil && out.Content != "" {
-				onChunk(out.Content)
-			}
-		}
-		if parsed.Usage != nil {
-			out.InputTokens = parsed.Usage.PromptTokens
-			out.OutputTokens = parsed.Usage.CompletionTokens
+		parsed.fill(&out)
+		if onChunk != nil && out.Content != "" {
+			onChunk(out.Content)
 		}
 		return out, nil
 	}
 	out.Content = content.String()
+	out.Reasoning = reasoning.String()
 	return out, nil
 }
 
@@ -309,30 +363,87 @@ type streamOptions struct {
 
 type chatStreamChunk struct {
 	Choices []struct {
-		Delta struct {
-			Content string `json:"content"`
-		} `json:"delta"`
+		Delta        replyMessage `json:"delta"`
+		FinishReason string       `json:"finish_reason"`
 	} `json:"choices"`
 	Usage *usage `json:"usage"`
+}
+
+// replyMessage is a message or a stream delta. Upstreams disagree on
+// where thinking goes: DeepSeek, vLLM and most open-weight hosts use
+// reasoning_content, OpenRouter uses reasoning.
+type replyMessage struct {
+	Content          string `json:"content"`
+	ReasoningContent string `json:"reasoning_content"`
+	Reasoning        string `json:"reasoning"`
+
+	ProviderSpecificFields *providerFields `json:"provider_specific_fields,omitempty"`
+}
+
+// providerFields is where LiteLLM-style proxies (Eden among them) put
+// what the OpenAI shape has no field for. Gemini 3's thought signatures
+// arrive here and are accepted back in the same place on an assistant
+// message.
+type providerFields struct {
+	ThoughtSignatures []string `json:"thought_signatures,omitempty"`
+}
+
+func (m replyMessage) thinking() string {
+	if m.ReasoningContent != "" {
+		return m.ReasoningContent
+	}
+	return m.Reasoning
 }
 
 type chatMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
+
+	ProviderSpecificFields *providerFields `json:"provider_specific_fields,omitempty"`
 }
 
 type chatResponse struct {
 	Choices []struct {
-		Message struct {
-			Content string `json:"content"`
-		} `json:"message"`
+		Message      replyMessage `json:"message"`
+		FinishReason string       `json:"finish_reason"`
 	} `json:"choices"`
 	Usage *usage `json:"usage"`
 }
 
+func (r *chatResponse) fill(out *CompletionResponse) {
+	if len(r.Choices) > 0 {
+		out.Content = r.Choices[0].Message.Content
+		out.Reasoning = r.Choices[0].Message.thinking()
+		out.FinishReason = r.Choices[0].FinishReason
+		if f := r.Choices[0].Message.ProviderSpecificFields; f != nil {
+			out.ThoughtSignatures = f.ThoughtSignatures
+		}
+	}
+	if r.Usage != nil {
+		r.Usage.fill(out)
+	}
+}
+
 type usage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
+	PromptTokens            int `json:"prompt_tokens"`
+	CompletionTokens        int `json:"completion_tokens"`
+	CompletionTokensDetails *struct {
+		ReasoningTokens int `json:"reasoning_tokens"`
+	} `json:"completion_tokens_details"`
+	PromptTokensDetails *struct {
+		CachedTokens int `json:"cached_tokens"`
+	} `json:"prompt_tokens_details"`
+}
+
+func (u *usage) fill(out *CompletionResponse) {
+	out.InputTokens = u.PromptTokens
+	out.OutputTokens = u.CompletionTokens
+	if u.CompletionTokensDetails != nil {
+		out.ReasoningTokens = u.CompletionTokensDetails.ReasoningTokens
+	}
+	if u.PromptTokensDetails != nil {
+		out.CachedTokens = u.PromptTokensDetails.CachedTokens
+	}
 }
 
 type apiError struct {
@@ -347,7 +458,13 @@ func (e *apiError) Error() string {
 func buildMessages(in []Message) []chatMessage {
 	out := make([]chatMessage, 0, len(in))
 	for _, m := range in {
-		out = append(out, chatMessage{Role: roleFor(m.Role), Content: m.Content})
+		msg := chatMessage{Role: roleFor(m.Role), Content: m.Content}
+		// Only an assistant message carries signatures back; the field
+		// is omitted otherwise, so hosts that do not know it never see it.
+		if msg.Role == "assistant" && len(m.ThoughtSignatures) > 0 {
+			msg.ProviderSpecificFields = &providerFields{ThoughtSignatures: m.ThoughtSignatures}
+		}
+		out = append(out, msg)
 	}
 	return out
 }
@@ -400,8 +517,16 @@ func (c *openAIClient) doJSONPost(ctx context.Context, path string, body []byte)
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "application/json")
-		if c.apiKey != "" {
-			req.Header.Set("Authorization", "Bearer "+c.apiKey)
+		bearer := c.apiKey
+		if c.tokenSource != nil {
+			// A token that cannot be fetched fails the call: retrying the
+			// completion would only ask the same token source again.
+			if bearer, err = c.tokenSource.Token(ctx); err != nil {
+				return nil, fmt.Errorf("llm: token: %w", err)
+			}
+		}
+		if bearer != "" {
+			req.Header.Set("Authorization", "Bearer "+bearer)
 		}
 		for k, v := range c.headers {
 			req.Header.Set(k, v)

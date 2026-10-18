@@ -8,7 +8,7 @@ import (
 
 func runTurn(t *testing.T, sb *Sandbox, code string) string {
 	t.Helper()
-	logs, _, err := sb.ExecuteTurn("function run(args) {\n"+code+"\n}", json.RawMessage(`{}`))
+	logs, _, err := sb.ExecuteTurn("state = (function(args){\n"+code+"\n})(state);", json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestTurnLogsAreCappedOnAScriptError(t *testing.T) {
 	sb.SetMaxLogBytes(1024)
 
 	logs, _, err := sb.ExecuteTurn(
-		`function run(args) { for (var i = 0; i < 2000; i++) { log("row " + i); } throw new Error("boom"); }`,
+		`state = (function(args){ for (var i = 0; i < 2000; i++) { log("row " + i); } throw new Error("boom"); })(state);`,
 		json.RawMessage(`{}`))
 
 	if err == nil {

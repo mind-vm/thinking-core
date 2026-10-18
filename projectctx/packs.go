@@ -8,8 +8,8 @@ import (
 
 	"github.com/dop251/goja"
 
-	"github.com/mind-vm/agentloop"
-	"github.com/mind-vm/agentloop/sandbox"
+	"github.com/mind-vm/thinking-core/agentloop"
+	"github.com/mind-vm/thinking-core/sandbox"
 )
 
 // PackName is the sandbox pack (and agentloop Capability) the retrieval

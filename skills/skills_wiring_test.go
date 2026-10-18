@@ -8,14 +8,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mind-vm/agentloop"
-	"github.com/mind-vm/agentloop/sandbox"
-	"github.com/mind-vm/agentloop/skills"
+	"github.com/mind-vm/thinking-core/agentloop"
+	"github.com/mind-vm/thinking-core/sandbox"
+	"github.com/mind-vm/thinking-core/skills"
 )
 
 // buildSandbox wires discovered skills through the same builder an
 // application would use, so the test exercises the real path from
-// SKILL.md on disk to what a run() script can see.
+// SKILL.md on disk to what a script can see.
 func buildSandbox(t *testing.T, sk []skills.Skill, enabled *[]string) *sandbox.Sandbox {
 	t.Helper()
 	builder := &agentloop.DefaultSandboxBuilder{
@@ -33,7 +33,7 @@ func buildSandbox(t *testing.T, sk []skills.Skill, enabled *[]string) *sandbox.S
 // eval runs one script body and unmarshals what it returned.
 func eval(t *testing.T, sb *sandbox.Sandbox, code string, into any) {
 	t.Helper()
-	_, ret, err := sb.ExecuteTurn("function run(args) {\n"+code+"\n}", json.RawMessage(`{}`))
+	_, ret, err := sb.ExecuteTurn("state = (function(args){\n"+code+"\n})(state);", json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatalf("execute %q: %v", code, err)
 	}

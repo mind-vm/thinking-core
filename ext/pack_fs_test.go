@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mind-vm/agentloop/ext"
-	"github.com/mind-vm/agentloop/sandbox"
+	"github.com/mind-vm/thinking-core/ext"
+	"github.com/mind-vm/thinking-core/sandbox"
 )
 
 // workspaceAt builds a sandbox with the workspace pack rooted at a
@@ -42,12 +42,12 @@ func workspaceAt(t *testing.T, files map[string]string, opts ext.WorkspaceOption
 	return sb, dir
 }
 
-// run executes one turn and returns what run() returned, as JSON —
+// run executes one script and returns what it left in state, as JSON —
 // which is exactly what the loop threads forward, so asserting on it
 // asserts on what the next turn would actually see.
 func run(t *testing.T, sb *sandbox.Sandbox, script string) string {
 	t.Helper()
-	_, ret, err := sb.ExecuteTurn("function run(args) {\n"+script+"\n}", json.RawMessage(`{}`))
+	_, ret, err := sb.ExecuteTurn("state = (function(args){\n"+script+"\n})(state);", json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatalf("execute: %v\nscript:\n%s", err, script)
 	}
@@ -57,7 +57,7 @@ func run(t *testing.T, sb *sandbox.Sandbox, script string) string {
 // runErr executes a turn expected to throw, returning the message.
 func runErr(t *testing.T, sb *sandbox.Sandbox, script string) string {
 	t.Helper()
-	_, _, err := sb.ExecuteTurn("function run(args) {\n"+script+"\n}", json.RawMessage(`{}`))
+	_, _, err := sb.ExecuteTurn("state = (function(args){\n"+script+"\n})(state);", json.RawMessage(`{}`))
 	if err == nil {
 		t.Fatalf("want an error from:\n%s", script)
 	}
@@ -266,6 +266,13 @@ func TestGrep(t *testing.T) {
 	}
 }
 
+func TestGrepRefusesAGlobThatMatchesNothing(t *testing.T) {
+	sb, _ := workspaceAt(t, sampleTree, ext.WorkspaceOptions{}, sandbox.AllowAll)
+	if msg := runErr(t, sb, `return grep("helper", { glob: "src/main.go|src/util.go" });`); !strings.Contains(msg, "matched no files") {
+		t.Errorf("got %q", msg)
+	}
+}
+
 func TestGrepSkipsBinaryFiles(t *testing.T) {
 	sb, _ := workspaceAt(t, map[string]string{
 		"text.txt": "findme here\n",
@@ -396,7 +403,7 @@ func TestReadsAreNotGated(t *testing.T) {
 	sb, _ := workspaceAt(t, sampleTree, ext.WorkspaceOptions{Approver: approver}, sandbox.DefaultPolicy{})
 
 	for _, expr := range []string{`readFile("README.md")`, `listDir(".")`, `glob("**/*.go")`, `grep("func")`} {
-		if _, _, err := sb.ExecuteTurn("function run(args) { return "+expr+"; }", []byte(`{}`)); err != nil {
+		if _, _, err := sb.ExecuteTurn("state = (function(args){ return "+expr+"; })(state);", []byte(`{}`)); err != nil {
 			t.Errorf("%s should not need permission: %v", expr, err)
 		}
 	}
@@ -491,5 +498,71 @@ func TestAmbiguousEditIsRefusedBeforeAsking(t *testing.T) {
 	runErr(t, sb, `return editFile("f.txt", "dup", "x");`)
 	if len(approver.asked) != 0 {
 		t.Errorf("no one should be asked to approve an edit that cannot be made: %v", approver.asked)
+	}
+}
+
+// A refused path is refused before anyone is asked: an approval prompt
+// for a change that is wrong whatever the answer only teaches people to
+// say yes.
+func TestRefuseComesBeforeTheApprover(t *testing.T) {
+	approver := &recordingApprover{answer: true}
+	opts := ext.WorkspaceOptions{
+		Approver: approver,
+		Refuse: func(rel string) string {
+			if rel == "go.sum" {
+				return "go.sum is generated — run go mod tidy instead"
+			}
+			return ""
+		},
+	}
+	sb, dir := workspaceAt(t, map[string]string{"go.sum": "old\n"}, opts, sandbox.DefaultPolicy{})
+
+	for _, script := range []string{
+		`return writeFile("go.sum", "new\n");`,
+		`return editFile("go.sum", "old", "new");`,
+	} {
+		msg := runErr(t, sb, script)
+		if !strings.Contains(msg, "go mod tidy") {
+			t.Errorf("the refusal should carry the caller's reason: %q", msg)
+		}
+	}
+	if len(approver.asked) != 0 {
+		t.Errorf("a refused path should never reach the approver: %v", approver.asked)
+	}
+	assertFile(t, dir, "go.sum", "old\n")
+
+	run(t, sb, `return writeFile("other.txt", "x");`)
+	assertFile(t, dir, "other.txt", "x")
+}
+
+// BeforeWrite sees the path after the change is authorised and before
+// it lands, so what it records is the file as it was.
+func TestBeforeWriteSeesTheFileBeforeTheChange(t *testing.T) {
+	var seen []string
+	var dir string
+	opts := ext.WorkspaceOptions{
+		BeforeWrite: func(_ context.Context, rel string) {
+			data, _ := os.ReadFile(filepath.Join(dir, rel))
+			seen = append(seen, rel+"="+string(data))
+		},
+	}
+	sb, d := workspaceAt(t, map[string]string{"a.txt": "before"}, opts, sandbox.AllowAll)
+	dir = d
+
+	run(t, sb, `editFile("a.txt", "before", "after"); return writeFile("b.txt", "new");`)
+	want := []string{"a.txt=before", "b.txt="}
+	if strings.Join(seen, "|") != strings.Join(want, "|") {
+		t.Errorf("BeforeWrite saw %v, want %v", seen, want)
+	}
+}
+
+// A write that is not authorised does not reach BeforeWrite.
+func TestBeforeWriteSkipsADeniedWrite(t *testing.T) {
+	called := false
+	opts := ext.WorkspaceOptions{BeforeWrite: func(context.Context, string) { called = true }}
+	sb, _ := workspaceAt(t, sampleTree, opts, sandbox.DefaultPolicy{})
+	runErr(t, sb, `return writeFile("new.txt", "x");`)
+	if called {
+		t.Error("BeforeWrite ran for a write the policy denied")
 	}
 }

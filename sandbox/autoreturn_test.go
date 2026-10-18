@@ -1,6 +1,8 @@
 package sandbox
 
-import "testing"
+import (
+	"testing"
+)
 
 // TestHasTopLevelSemicolon covers the distinction the auto-return
 // heuristic rests on: a semicolon that separates two statements versus

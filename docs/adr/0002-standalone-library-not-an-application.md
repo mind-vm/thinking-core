@@ -3,7 +3,7 @@
 - **Status:** Working
 - **Confidence:** High
 - **Decided:** 2026-08-21
-- **Last reviewed:** 2026-08-28
+- **Last reviewed:** 2026-10-18
 - **Consumers:** `cmd/agentloop`, the CLI in this repository — the first real
   one, and in-tree rather than external. The ancestors
   (`studio-apps/core/agentloop`, mybrain) still run their own copies, so the
@@ -26,7 +26,7 @@ The reasoning loop is the differentiated part; none of that plumbing is.
 
 ## Decision
 
-agentloop is a **standalone Go module** — `github.com/mind-vm/agentloop` — that
+agentloop is a **standalone Go module** — `github.com/mind-vm/thinking-core` — that
 depends on no application framework and no application schema.
 
 - **Nothing host-specific in the core.** The extraction dropped mybrain's
@@ -80,7 +80,7 @@ and it has already been renamed once (`jryannel` → `mind-vm`, 2026-08-25).
 
 - 2026-08-21 — Extracted from mybrain as a standalone module.
 - 2026-08-25 — Module path moved from `github.com/jryannel/agentloop` to
-  `github.com/mind-vm/agentloop`.
+  `github.com/mind-vm/thinking-core`.
 - 2026-08-28 — Recorded retroactively.
 - 2026-08-28 — `cmd/agentloop` shipped with a release pipeline, giving the
   library its first consumer and the *Consumers* line something other than

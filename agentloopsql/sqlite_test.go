@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mind-vm/agentloop"
-	"github.com/mind-vm/agentloop/agentloopsql"
-	"github.com/mind-vm/agentloop/agentlooptest"
+	"github.com/mind-vm/thinking-core/agentloop"
+	"github.com/mind-vm/thinking-core/agentloopsql"
+	"github.com/mind-vm/thinking-core/agentlooptest"
 )
 
 // fresh returns an empty Store backed by a file in the test's temp

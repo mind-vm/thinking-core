@@ -17,11 +17,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/mind-vm/agentloop"
-	"github.com/mind-vm/agentloop/agentloopmem"
-	"github.com/mind-vm/agentloop/llm"
-	"github.com/mind-vm/agentloop/projectctx"
-	"github.com/mind-vm/agentloop/skills"
+	"github.com/mind-vm/thinking-core/agentloop"
+	"github.com/mind-vm/thinking-core/agentloopmem"
+	"github.com/mind-vm/thinking-core/llm"
+	"github.com/mind-vm/thinking-core/projectctx"
+	"github.com/mind-vm/thinking-core/skills"
 )
 
 func main() {
@@ -96,7 +96,7 @@ func main() {
 func printEvent(evt agentloop.RunEvent) {
 	switch evt.Type {
 	case "execute_js":
-		fmt.Fprintf(os.Stderr, "\n--- run() ---\n%s\n", evt.Content)
+		fmt.Fprintf(os.Stderr, "\n--- script ---\n%s\n", evt.Content)
 	case "execute_js_result":
 		fmt.Fprintf(os.Stderr, "--- result ---\n%s\n", evt.Content)
 	case "response_chunk":

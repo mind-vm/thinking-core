@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mind-vm/agentloop"
-	"github.com/mind-vm/agentloop/sandbox"
+	"github.com/mind-vm/thinking-core/agentloop"
+	"github.com/mind-vm/thinking-core/sandbox"
 )
 
 // bigDoc is a body large enough that the default inline bound excerpts
@@ -309,10 +309,10 @@ func TestPackDeclaresItsPrimitives(t *testing.T) {
 }
 
 // execString runs an expression in the sandbox and returns its string
-// result, via the same run()/return protocol the loop uses.
+// result, via the same state protocol the loop uses.
 func execString(t *testing.T, sb *sandbox.Sandbox, expr string) string {
 	t.Helper()
-	_, ret, err := sb.ExecuteTurn("function run(args) { return "+expr+"; }", json.RawMessage(`{}`))
+	_, ret, err := sb.ExecuteTurn("state = (function(args){ return "+expr+"; })(state);", json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatalf("execute %s: %v", expr, err)
 	}

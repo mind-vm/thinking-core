@@ -31,9 +31,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/mind-vm/agentloop"
-	"github.com/mind-vm/agentloop/projectctx"
-	"github.com/mind-vm/agentloop/sandbox"
+	"github.com/mind-vm/thinking-core/agentloop"
+	"github.com/mind-vm/thinking-core/projectctx"
+	"github.com/mind-vm/thinking-core/sandbox"
 )
 
 // FileName is the file that defines a skill inside its directory.

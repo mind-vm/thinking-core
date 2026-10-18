@@ -4,7 +4,7 @@
 //
 // Three things consume it. astro.config.mjs configures Astro with it.
 // rehype-base-links.mjs prefixes the root-relative links in Markdown content
-// at build time, so pages link to `/concepts/` and never to `/agentloop/...`.
+// at build time, so pages link to `/concepts/` and never to `/thinking-core/...`.
 // And MDX that builds hrefs in JavaScript rather than Markdown — 404.mdx —
 // imports `base` directly, since the rehype plugin does not rewrite JSX.
 //
@@ -13,4 +13,4 @@
 // ("start/"), which resolves correctly under any base because that page sits
 // at the deployment root.
 export const site = "https://mind-vm.github.io";
-export const base = "/agentloop";
+export const base = "/thinking-core";

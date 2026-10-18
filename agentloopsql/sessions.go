@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/mind-vm/agentloop"
+	"github.com/mind-vm/thinking-core/agentloop"
 )
 
 // ErrNoSession reports that no session matched. Callers distinguish "you

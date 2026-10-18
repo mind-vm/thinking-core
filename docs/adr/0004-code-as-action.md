@@ -3,7 +3,7 @@
 - **Status:** Working
 - **Confidence:** High
 - **Decided:** 2026-03 (in `thinking-core`), reconfirmed 2026-08-21
-- **Last reviewed:** 2026-08-28
+- **Last reviewed:** 2026-10-18
 - **Consumers:** the whole library — every other record here assumes it.
 
 ## Context
@@ -33,7 +33,7 @@ code-execution-with-MCP all arrive at the same place independently.
 
 The model gets **exactly one tool — a JavaScript sandbox** — and every
 capability is a function inside it. Each turn it emits one fenced
-` ```javascript ` block defining `function run(args) { ... }`; the loop parses
+` ```javascript ` block — a plain script ([ADR-0017](0017-scripts-keep-data-in-state.md)); the loop parses
 it out of the response text, executes it, and feeds the outcome back. A run ends
 when the script calls `answer(result)`.
 
@@ -92,6 +92,8 @@ cheaper but forks every context-economy mechanism, which is the worse outcome.
 - 2026-03 — Chosen in `valiro-ai/thinking-core`, for the Gemini decoder reason,
   and exposed there as a `think` tool over a persistent `data` global.
 - 2026-08-21 — Carried into the standalone extraction as `run(args)`.
+- 2026-10-18 — A reply is now a plain script that keeps data in `state`
+  ([ADR-0017](0017-scripts-keep-data-in-state.md)); code as action is unchanged.
 - 2026-08-28 — Recorded retroactively. Writing it surfaced that the motivating
   reason is obsolete and the surviving justification has one measurement behind
   it, not a comparison.

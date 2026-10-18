@@ -77,15 +77,14 @@ its record: if it still reads true, bump the date; if it does not, fix it. A
 record whose review date is far behind the code is a stale document, and stale
 documents are worse than absent ones.
 
-This is not left to memory. Three checks enforce the mechanical half — none of
-them can tell whether a record is still *true*, which is the part only a reader
-can do:
+The mechanical half is not left to memory — none of these can tell whether a
+record is still *true*, which is the part only a reader can do:
 
 | Check | Where | Blocks? |
 |---|---|---|
 | Headers parse; Status and Confidence are vocabulary; dates are possible; the index agrees with each record; sibling links resolve | [`adr_test.go`](adr_test.go), so plain `go test ./...` runs it | **yes** |
-| A record edited without a Last reviewed date at least as recent as the edit | `.github/workflows/adr.yml` | **yes** |
-| Records past a 90-day review horizon | same workflow, into the run summary; weekly on a schedule | no — reported only |
+| A record edited without a Last reviewed date at least as recent as the edit | review — the CI check that held this was removed with the rest of the non-minimal CI on 2026-09-03 | no — convention |
+| Records past a 90-day review horizon | `go test ./docs/adr/ -run TestReviewHorizon -v`, by hand | no — reported only |
 
 The middle one is the one that matters, and it exists because this repository
 hit the failure: fifteen records were written on 2026-08-28 against a `main`
@@ -122,7 +121,7 @@ it bears on.
 | [0002](0002-standalone-library-not-an-application.md) | A standalone library, not an application | Working | High |
 | [0003](0003-a-bounded-work-horse.md) | A bounded work-horse, not a general agent | Revisiting | Medium |
 | [0004](0004-code-as-action.md) | Code as action — one tool, one JavaScript block per turn | Working | High |
-| [0005](0005-carry-by-return-see-by-log.md) | Carry by `return`, see by `log()` — show shape, not values | Working | High |
+| [0005](0005-carry-by-return-see-by-log.md) | Carry by `return`, see by `log()` — show shape, not values | Replaced by [ADR-0017](0017-scripts-keep-data-in-state.md) | High |
 | [0006](0006-elide-stale-code-per-run.md) | Elide stale code, scoped to the current run | Working | High |
 | [0007](0007-goja-synchronous-runtime.md) | goja in-process — ES5.1, synchronous, no event loop | Working | Medium |
 | [0008](0008-sandbox-is-the-trust-boundary.md) | Capabilities build packs; the sandbox is the trust boundary | Working | High |
@@ -134,6 +133,7 @@ it bears on.
 | [0014](0014-retrieval-over-inlining.md) | Retrieval over inlining for project instructions and skills | Working | Medium |
 | [0015](0015-observability-seams.md) | Observability is a seam, and off unless wired | Working | Medium |
 | [0016](0016-mit-and-public.md) | MIT and public | Working | High |
+| [0017](0017-scripts-keep-data-in-state.md) | Scripts keep data in state, not in a run(args) return | Working | Medium |
 
 ## Lineage
 

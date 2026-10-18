@@ -1,4 +1,4 @@
-module github.com/mind-vm/agentloop
+module github.com/mind-vm/thinking-core
 
 go 1.25.0
 

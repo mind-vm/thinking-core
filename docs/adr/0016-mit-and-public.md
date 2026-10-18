@@ -3,7 +3,7 @@
 - **Status:** Working
 - **Confidence:** High
 - **Decided:** 2026-08-26
-- **Last reviewed:** 2026-08-28
+- **Last reviewed:** 2026-10-18
 - **Consumers:** every machine that builds against this module, and the docs
   site, which cannot be served from a private repository on this plan.
 
@@ -81,3 +81,10 @@ site down a second time.
   missed by being deleted before it, and with the two pages that described the
   licence corrected.
 - 2026-08-28 — Recorded.
+- 2026-09-02 — Repository archived; the library moved into the private
+  mind-vm/studio-apps monorepo as `libs/agentloop`, where this record was marked
+  replaced by that repository's "private and proprietary" ADR.
+- 2026-10-18 — Public again as its own repository, with the monorepo history of
+  `libs/agentloop` replayed on top of this one. The reasoning above held: keeping
+  it private protected nothing specific to agentloop, and the monorepo consumed
+  it as `github.com/mind-vm/thinking-core` throughout.

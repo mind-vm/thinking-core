@@ -112,7 +112,8 @@ func (p URLAllowlistPolicy) Check(_ context.Context, toolName string, args map[s
 	}
 	return PolicyCheckResult{
 		Allowed: false,
-		Reason:  fmt.Sprintf("URL %q is not in the allowlist", rawURL),
+		Reason: fmt.Sprintf("this run may not reach %q. The URLs it may reach start with: %s.",
+			rawURL, strings.Join(p.AllowedPrefixes, ", ")),
 	}, nil
 }
 

@@ -1,5 +1,5 @@
 // Package sandbox is agentloop's JS executor — a goja sandbox the model
-// writes run(args) → return turns against, one capability per registered
+// writes its scripts against, one capability per registered
 // Pack.
 package sandbox
 
@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/dop251/goja"
 )
@@ -28,7 +29,7 @@ type LogEntry struct {
 // then each Pack in order, then snapshots the globalThis key set as
 // baseKeys. Every Execute()/ExecuteTurn() rolls globalThis back to
 // baseKeys before running the next script — cross-turn working memory
-// lives in the threaded `args` (ExecuteTurn) or chat history, never in
+// lives in the threaded `state` (ExecuteTurn) or chat history, never in
 // stray globals.
 type Sandbox struct {
 	runtime      *goja.Runtime
@@ -43,6 +44,14 @@ type Sandbox struct {
 	policy       PolicyChecker         // nil = fail-open; see policy.go
 	answered     bool                  // answer() was called during this Execute
 	answerText   string                // the value passed to answer(), stringified
+	corePrompt   string                // replaces defaultCorePrompt when set
+	blocks       []string              // the reply's data blocks, injected as `blocks` next turn
+	userOutput   bool                  // print/done/exit are the user channel; see EnableUserOutput
+	printed      []string              // print() output for the user, across scripts
+	doneCalled   bool                  // done() or exit() was called during this ExecuteTurn
+	doneMessage  string                // the message passed to done() or exit()
+	turnEffects  []string              // file writes and commands this script made; see TurnEffects
+	exitGuard    func() error          // consulted by done()/exit(); see SetExitGuard
 	// console state, scoped to the runtime's lifetime (a turn): counters for
 	// console.count, start times for console.time, and the current group nesting
 	// depth for console.group/groupEnd indentation.
@@ -227,41 +236,55 @@ func (s *Sandbox) registerCorePrimitives() {
 	s.helpEntries["parseUrl"] = "parseUrl(url) — Parse an absolute URL string. Returns {href, protocol, hostname, port, pathname, search, hash} or null for relative URLs/invalid input."
 }
 
+// answerDecl and userOutputDecl are the two ways a run finishes, and
+// defaultCorePrompt declares exactly one: the one this sandbox's loop
+// honours. labs/codeloop measured what naming a finish the run did not
+// wire costs — a model that tries to finish, is told the function does
+// not exist or is ignored, and retries until the turn cap: +8 passes in
+// 60 once the declarations matched, and turn-cap failures from 30% of
+// runs to 7%.
+const answerDecl = `/** End the task and give result (markdown or JSON) to the user. */
+declare function answer(result: string | object): void;
+`
+
+const userOutputDecl = `/** Write for the user: the task's result. log/console are for you; print is what the user reads. */
+declare function print(...values: any[]): void;
+/** END the task once this script returns; message is added after what you printed. Call it only when the work is done. This is how you finish. */
+declare function exit(message?: string): void;
+`
+
+// defaultCorePrompt declares what a script needs to work at all: the
+// finish ({{finish}}), log, and state. The other core globals (console,
+// assert, text, parseUrl, help) stay registered — a model reaches for
+// console.log by habit — but naming them would only lengthen the prompt;
+// help() lists them.
+const defaultCorePrompt = `{{finish}}/** Show values to yourself; you read them before writing the next script. */
+declare function log(...values: any[]): void;
+/** Persists between your scripts. You see its shape, not its values. */
+declare const state: Record<string, any>;`
+
+// SetCorePrompt replaces the core declarations in SystemPrompt, for an
+// agent that documents fewer of the always-registered globals. The
+// globals themselves stay registered. Empty restores the default.
+func (s *Sandbox) SetCorePrompt(prompt string) {
+	s.corePrompt = prompt
+}
+
 // SystemPrompt builds the primitives documentation from all registered
 // packs. Appended to the agent loop's base instructions so the LLM
 // knows what's available. Pack prompts use TypeScript .d.ts format
 // wrapped in a single code fence; the "context" pack (dynamic
 // session data) is appended as prose after the fence.
 func (s *Sandbox) SystemPrompt() string {
-	var dts []string
-	dts = append(dts, `// --- Core ---
-// You implement: function run(args) { ... } — one per turn. Everything below is provided by the sandbox.
-
-/** Deliver the final result and END the run — pass a string (your answer, as markdown) or a JSON value (structured data). Call it once, when you have the answer; nothing after it runs in a new turn. This is how you finish. */
-declare function answer(result: string | object): void;
-/** Output to console. Objects are JSON-serialized. */
-declare function log(...args: any[]): void;
-/** Assert an invariant. If cond is falsy, throws with message — surfacing as an error you see next turn, so you can fix it. Guard your inputs and results: assert(args.caps, "caps missing"), assert(rows.length, "no rows"). A loud failure you can recover from beats a silent wrong answer. */
-declare function assert(cond: any, message?: string): void;
-/** Join arguments with newlines. */
-declare function text(...lines: string[]): string;
-/** Parse an absolute URL string. Returns null for relative URLs or invalid input. Use instead of new URL() which is not available. */
-declare function parseUrl(url: string): { href: string; protocol: string; hostname: string; port: string; pathname: string; search: string; hash: string } | null;
-/** List all primitives; help(name) for details. */
-declare function help(name?: string): string;
-/** Standard console for debugging — every method's output is visible to YOU next turn (same channel as log). */
-declare const console: {
-  log(...args: any[]): void; info(...args: any[]): void; debug(...args: any[]): void;
-  warn(...args: any[]): void; error(...args: any[]): void; dir(obj: any): void; trace(...args: any[]): void;
-  /** Logs "Assertion failed: …" if cond is falsy and CONTINUES (does not throw). Use the global assert() when you want to STOP and self-correct. */
-  assert(cond: any, ...msg: any[]): void;
-  /** Print an array of objects (or one object) as a fixed-width table — the fastest way to eyeball query/extraction rows. */
-  table(rows: object[] | object): void;
-  count(label?: string): void; countReset(label?: string): void;
-  /** Wall-clock timing in ms between time(label) and timeEnd(label). */
-  time(label?: string): void; timeEnd(label?: string): void;
-  group(label?: string): void; groupCollapsed(label?: string): void; groupEnd(): void;
-};`)
+	core := s.corePrompt
+	if core == "" {
+		finish := answerDecl
+		if s.userOutput {
+			finish = userOutputDecl
+		}
+		core = strings.Replace(defaultCorePrompt, "{{finish}}", finish, 1)
+	}
+	dts := []string{core}
 
 	var prose []string
 	for _, p := range s.packs {
@@ -295,8 +318,12 @@ func (s *Sandbox) SetOnEvent(fn OnEvent) {
 	s.onEvent = fn
 }
 
-// Emit sends an event to the callback if one is registered.
+// Emit sends an event to the callback if one is registered, and
+// records the script's effects for TurnEffects.
 func (s *Sandbox) Emit(evt Event) {
+	if evt.Kind == EventFileWrite || evt.Kind == EventExec {
+		s.turnEffects = append(s.turnEffects, evt.Summary)
+	}
 	if s.onEvent != nil {
 		s.onEvent(evt)
 	}
@@ -324,6 +351,7 @@ func (s *Sandbox) TakeAnswer() (value string, ok bool) {
 // so a malformed exposure doesn't crash the agent goroutine.
 func (s *Sandbox) Execute(code string) (result string, err error) {
 	s.logs = nil
+	s.turnEffects = nil
 	s.answered = false
 	s.answerText = ""
 	s.resetGlobals()
@@ -375,19 +403,32 @@ func (s *Sandbox) Execute(code string) (result string, err error) {
 	return output, nil
 }
 
-// ExecuteTurn runs one turn under the run(args)→return contract used by the
-// return-threading loop. argsJSON (the previous turn's return value) is injected
-// as the global `args`; if the code defines `function run(args) { ... }` it is
-// called with args and its return value is captured. The captured value is
-// marshalled to JSON and returned as ret for the loop to thread into the next
-// turn — it is NOT serialised into the LLM-visible result. logs holds the joined
-// log() output, which (plus a structural digest the loop derives from ret) is the
-// only thing the model sees back. A run that defines no run() function returns
-// empty ret: loose statements carry nothing forward, only their side effects
-// (log/answer/emit).
-func (s *Sandbox) ExecuteTurn(code string, argsJSON json.RawMessage) (logs string, ret json.RawMessage, err error) {
+// SetBlocks sets the raw text blocks the next ExecuteTurn exposes to the
+// script as the global array `blocks`.
+func (s *Sandbox) SetBlocks(blocks []string) {
+	s.blocks = blocks
+}
+
+func nonNilStrings(v []string) []string {
+	if v == nil {
+		return []string{}
+	}
+	return v
+}
+
+// ExecuteTurn runs one script. stateJSON (what the previous script left in
+// state) is injected as the global `state`; whatever state holds when the
+// script ends is marshalled to JSON and returned as ret for the loop to
+// thread into the next turn — it is NOT serialised into the LLM-visible
+// result. logs holds the joined log() output, which (plus a structural
+// digest the loop derives from ret) is the only thing the model sees back.
+// A script that throws returns nil ret, so the loop keeps the previous
+// state.
+func (s *Sandbox) ExecuteTurn(code string, stateJSON json.RawMessage) (logs string, ret json.RawMessage, err error) {
 	s.logs = nil
+	s.turnEffects = nil
 	s.answered = false
+	s.doneCalled, s.doneMessage = false, ""
 	s.answerText = ""
 	s.resetGlobals()
 	s.Emit(Event{Kind: EventScript, Summary: "execute", Detail: code})
@@ -407,22 +448,30 @@ func (s *Sandbox) ExecuteTurn(code string, argsJSON json.RawMessage) (logs strin
 		defer timer.Stop()
 	}
 
-	// Inject `args` (the prior return). Hydrate via JSON.parse for an
-	// ES5.1-safe round-trip; an empty/invalid blob yields {}.
-	if len(argsJSON) == 0 || string(argsJSON) == "null" {
-		_ = s.runtime.Set("args", s.runtime.NewObject())
-	} else if escaped, mErr := json.Marshal(string(argsJSON)); mErr == nil {
-		if _, pErr := s.runtime.RunString("args = JSON.parse(" + string(escaped) + ");"); pErr != nil {
-			_ = s.runtime.Set("args", s.runtime.NewObject())
+	// Inject `state` (what the previous script left there). Hydrate via
+	// JSON.parse for an ES5.1-safe round-trip; an empty/invalid blob
+	// yields {}.
+	if len(stateJSON) == 0 || string(stateJSON) == "null" {
+		_ = s.runtime.Set("state", s.runtime.NewObject())
+	} else if escaped, mErr := json.Marshal(string(stateJSON)); mErr == nil {
+		if _, pErr := s.runtime.RunString("state = JSON.parse(" + string(escaped) + ");"); pErr != nil {
+			_ = s.runtime.Set("state", s.runtime.NewObject())
 		}
 	} else {
-		_ = s.runtime.Set("args", s.runtime.NewObject())
+		_ = s.runtime.Set("state", s.runtime.NewObject())
 	}
 
-	// Define the code, then call run(args) if the model declared it. Loose
-	// scripts (no run) execute for their side effects and return nothing.
-	wrapped := "(function(){\n" + code + "\nif (typeof run === 'function') { return run(args); }\n})()"
-	val, runErr := s.runtime.RunString(wrapped)
+	// Inject `blocks`, the reply's other fenced blocks, as a real array.
+	if encoded, mErr := json.Marshal(nonNilStrings(s.blocks)); mErr == nil {
+		if escaped, eErr := json.Marshal(string(encoded)); eErr == nil {
+			_, _ = s.runtime.RunString("blocks = JSON.parse(" + string(escaped) + ");")
+		}
+	}
+
+	// The script runs in a closure of its own, so a top-level const may be
+	// declared again next turn; state is read back afterwards, so both
+	// state.x = … and state = {…} carry.
+	_, runErr := s.runtime.RunString("(function(){\n" + code + "\n})()")
 	if runErr != nil {
 		s.runtime.ClearInterrupt()
 		s.Emit(Event{Kind: EventError, Summary: "script error", Detail: runErr.Error()})
@@ -430,7 +479,7 @@ func (s *Sandbox) ExecuteTurn(code string, argsJSON json.RawMessage) (logs strin
 	}
 
 	logs = s.joinedLogs()
-	ret = exportJSON(val)
+	ret = exportJSON(s.runtime.Get("state"))
 	s.Emit(Event{Kind: EventScriptResult, Summary: "result", Result: logs})
 	return logs, ret, nil
 }
@@ -473,9 +522,19 @@ func truncateLogs(out string, max int) string {
 	}
 	head := max * 3 / 4
 	tail := max - head
-	return out[:head] +
-		fmt.Sprintf("\n... (%d bytes of log output omitted — log selectively, or return data instead) ...\n", len(out)-max) +
-		out[len(out)-tail:]
+	// Cut on rune boundaries: a byte cut inside a multi-byte character (an umlaut in German
+	// text) hands the model invalid UTF-8.
+	h := head
+	for h > 0 && !utf8.RuneStart(out[h]) {
+		h--
+	}
+	t := len(out) - tail
+	for t < len(out) && !utf8.RuneStart(out[t]) {
+		t++
+	}
+	return out[:h] +
+		fmt.Sprintf("\n... (%d bytes of log output omitted — log selectively, or return data instead) ...\n", t-h) +
+		out[t:]
 }
 
 // exportJSON marshals a returned Goja value to JSON, or nil for

@@ -20,7 +20,7 @@ func TestSkillListUsesTheDocumentedKeys(t *testing.T) {
 		{Name: "fetch", Description: "fetch things", Type: "pack"},
 	}))
 
-	_, ret := turn(t, s, `function run(args) { return skillList(); }`)
+	_, ret := turn(t, s, `state = (function(args){ return skillList(); })(state);`)
 
 	var got []map[string]any
 	if err := json.Unmarshal(ret, &got); err != nil {
@@ -39,7 +39,7 @@ func TestSkillListUsesTheDocumentedKeys(t *testing.T) {
 // Agents call skillList().forEach(...), and null would crash the run.
 func TestSkillListIsAnArrayWhenEmpty(t *testing.T) {
 	s := New(SkillDiscoveryPack(nil))
-	_, ret := turn(t, s, `function run(args) { return { n: skillList().length }; }`)
+	_, ret := turn(t, s, `state = (function(args){ return { n: skillList().length }; })(state);`)
 	if !strings.Contains(string(ret), `"n":0`) {
 		t.Errorf("ret = %s, want an empty array", ret)
 	}
@@ -50,14 +50,14 @@ func TestSkillGet(t *testing.T) {
 		{Name: "fetch", Description: "the short description", Type: "pack"},
 	}))
 
-	_, ret := turn(t, s, `function run(args) { return skillGet("fetch"); }`)
+	_, ret := turn(t, s, `state = (function(args){ return skillGet("fetch"); })(state);`)
 	if !strings.Contains(string(ret), "the short description") {
 		t.Errorf("ret = %s", ret)
 	}
 
 	// An unknown name answers with something actionable rather than
 	// throwing — the model can recover by listing.
-	_, ret = turn(t, s, `function run(args) { return skillGet("nope"); }`)
+	_, ret = turn(t, s, `state = (function(args){ return skillGet("nope"); })(state);`)
 	if !strings.Contains(string(ret), "skillList") {
 		t.Errorf("an unknown skill should point at skillList, got %s", ret)
 	}
@@ -74,7 +74,7 @@ func TestSkillGetPrefersDetailedHelp(t *testing.T) {
 		{Name: "documented", Description: "one line", Type: "pack"},
 	}))
 
-	_, ret := turn(t, s, `function run(args) { return skillGet("documented"); }`)
+	_, ret := turn(t, s, `state = (function(args){ return skillGet("documented"); })(state);`)
 	if !strings.Contains(string(ret), "the long form") {
 		t.Errorf("ret = %s, want the detailed entry", ret)
 	}
@@ -88,14 +88,14 @@ func TestHelp(t *testing.T) {
 		HelpEntries: map[string]string{"doThing": "doThing(x) — does the thing.\n  More detail here."},
 	}, HelpPack())
 
-	_, ret := turn(t, s, `function run(args) { return help("doThing"); }`)
+	_, ret := turn(t, s, `state = (function(args){ return help("doThing"); })(state);`)
 	if !strings.Contains(string(ret), "does the thing") {
 		t.Errorf("ret = %s", ret)
 	}
 
 	// The listing shows only the first line of each entry, so one
 	// verbose primitive cannot bury the rest.
-	_, ret = turn(t, s, `function run(args) { return help(); }`)
+	_, ret = turn(t, s, `state = (function(args){ return help(); })(state);`)
 	listing := string(ret)
 	if !strings.Contains(listing, "doThing") {
 		t.Errorf("listing = %s", listing)
@@ -107,7 +107,7 @@ func TestHelp(t *testing.T) {
 
 func TestHelpForAnUnknownName(t *testing.T) {
 	s := New(HelpPack())
-	_, ret := turn(t, s, `function run(args) { return help("nosuchthing"); }`)
+	_, ret := turn(t, s, `state = (function(args){ return help("nosuchthing"); })(state);`)
 	if !strings.Contains(string(ret), "help()") {
 		t.Errorf("an unknown name should point back at help(), got %s", ret)
 	}
@@ -135,11 +135,11 @@ func TestLogCapturesEveryForm(t *testing.T) {
 // recoverable signal rather than computing on bad data.
 func TestAssert(t *testing.T) {
 	s := New()
-	if _, _, err := s.ExecuteTurn(`function run(args) { assert(true, "fine"); return 1; }`, nil); err != nil {
+	if _, _, err := s.ExecuteTurn(`state = (function(args){ assert(true, "fine"); return 1; })(state);`, nil); err != nil {
 		t.Errorf("a passing assertion should not fail the run: %v", err)
 	}
 
-	_, _, err := s.ExecuteTurn(`function run(args) { assert(false, "the invariant broke"); }`, nil)
+	_, _, err := s.ExecuteTurn(`state = (function(args){ assert(false, "the invariant broke"); })(state);`, nil)
 	if err == nil {
 		t.Fatal("a failed assertion should fail the run")
 	}
@@ -150,10 +150,10 @@ func TestAssert(t *testing.T) {
 
 func TestParseUrl(t *testing.T) {
 	s := New()
-	_, ret := turn(t, s, `function run(args) {
+	_, ret := turn(t, s, `state = (function(args){
 		const u = parseUrl("https://example.com:8443/a/b?q=1");
 		return { host: u.hostname, path: u.pathname };
-	}`)
+	})(state);`)
 	if !strings.Contains(string(ret), "example.com") || !strings.Contains(string(ret), "/a/b") {
 		t.Errorf("ret = %s", ret)
 	}
@@ -169,7 +169,7 @@ func TestParseUrl(t *testing.T) {
 		"/an/absolute/path", // a valid request URI, but hostless
 		"",
 	} {
-		logs, ret, err := s.ExecuteTurn(`function run(args) { return parseUrl(`+quote(rejected)+`) === null; }`, nil)
+		logs, ret, err := s.ExecuteTurn(`state = (function(args){ return parseUrl(`+quote(rejected)+`) === null; })(state);`, nil)
 		if err != nil {
 			t.Errorf("parseUrl(%q) threw instead of returning null: %v (%s)", rejected, err, logs)
 			continue
@@ -191,7 +191,7 @@ func TestRequireLoadsARegisteredSkill(t *testing.T) {
 	s := New(RequirePack(context.Background()))
 	s.AddSkillCode("greeter", `module.exports = { hello: function(n) { return "hello " + n; } };`)
 
-	_, ret := turn(t, s, `function run(args) { return require("greeter").hello("world"); }`)
+	_, ret := turn(t, s, `state = (function(args){ return require("greeter").hello("world"); })(state);`)
 	if string(ret) != `"hello world"` {
 		t.Errorf("ret = %s", ret)
 	}
@@ -199,7 +199,7 @@ func TestRequireLoadsARegisteredSkill(t *testing.T) {
 
 func TestRequireOfSomethingUnknown(t *testing.T) {
 	s := New(RequirePack(context.Background()))
-	if _, _, err := s.ExecuteTurn(`function run(args) { return require("nope"); }`, nil); err == nil {
+	if _, _, err := s.ExecuteTurn(`state = (function(args){ return require("nope"); })(state);`, nil); err == nil {
 		t.Error("requiring an unregistered module should fail")
 	}
 }
@@ -213,10 +213,10 @@ func TestRequireCachesTheModule(t *testing.T) {
 		module.exports = { loads: function() { return globalThis.__loads; } };
 	`)
 
-	_, ret := turn(t, s, `function run(args) {
+	_, ret := turn(t, s, `state = (function(args){
 		require("counter");
 		return require("counter").loads();
-	}`)
+	})(state);`)
 	if string(ret) != "1" {
 		t.Errorf("the module was evaluated %s times, want 1", ret)
 	}
@@ -229,18 +229,18 @@ func TestMarkdownModule(t *testing.T) {
 	const doc = "# Title\\n\\nSome [a link](https://example.com) here.\\n\\n## Section\\n\\n- first item\\n- second item\\n"
 
 	t.Run("links", func(t *testing.T) {
-		_, ret := turn(t, s, `function run(args) {
+		_, ret := turn(t, s, `state = (function(args){
 			return require('markdown').links("`+doc+`").map(function(l) { return l.url; });
-		}`)
+		})(state);`)
 		if !strings.Contains(string(ret), "https://example.com") {
 			t.Errorf("ret = %s", ret)
 		}
 	})
 
 	t.Run("headings", func(t *testing.T) {
-		_, ret := turn(t, s, `function run(args) {
+		_, ret := turn(t, s, `state = (function(args){
 			return require('markdown').headings("`+doc+`").map(function(h) { return h.level + ":" + h.text; });
-		}`)
+		})(state);`)
 		got := string(ret)
 		if !strings.Contains(got, "1:Title") || !strings.Contains(got, "2:Section") {
 			t.Errorf("ret = %s", got)
@@ -248,9 +248,9 @@ func TestMarkdownModule(t *testing.T) {
 	})
 
 	t.Run("items", func(t *testing.T) {
-		_, ret := turn(t, s, `function run(args) {
+		_, ret := turn(t, s, `state = (function(args){
 			return { n: require('markdown').items("`+doc+`").length };
-		}`)
+		})(state);`)
 		if !strings.Contains(string(ret), `"n":2`) {
 			t.Errorf("ret = %s", ret)
 		}

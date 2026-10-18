@@ -21,7 +21,7 @@ hero:
       icon: open-book
       variant: minimal
     - text: View on GitHub
-      link: https://github.com/mind-vm/agentloop
+      link: https://github.com/mind-vm/thinking-core
       icon: external
       variant: minimal
 ---
@@ -30,13 +30,13 @@ import { Card, CardGrid } from "@astrojs/starlight/components";
 
 ## One turn, one script
 
-Each turn the model emits a single fenced ` ```javascript ` block defining
-`function run(args) { ... }`. agentloop executes it in a sandboxed
-[goja](https://github.com/dop251/goja) runtime and threads its return value
-into the *next* turn as `args` — a real JavaScript value, not text the model
-has to re-read and re-parse. The model sees only its own `log()` output plus
-a compact structural digest of what it returned. A run finishes when the
-script calls `answer(result)`.
+Each turn the model emits a single fenced ` ```javascript ` block — a plain
+script. thinking-core executes it in a sandboxed
+[goja](https://github.com/dop251/goja) runtime and threads what the script
+left in `state` into the *next* turn — real JavaScript values, not text the
+model has to re-read and re-parse. The model sees only its own `log()` output
+plus a compact structural digest of state. A run finishes when the script
+calls `answer(result)`.
 
 ```go
 client, err := llm.NewOpenAI(llm.ConfigFromEnv())
@@ -162,4 +162,4 @@ cost ceiling). None of those are architectural dead ends; they're the natural
 next layer to add on top if and when you need them.
 
 MIT licensed — see
-[LICENSE](https://github.com/mind-vm/agentloop/blob/main/LICENSE).
+[LICENSE](https://github.com/mind-vm/thinking-core/blob/main/LICENSE).

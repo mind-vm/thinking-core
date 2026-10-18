@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/mind-vm/agentloop"
+	"github.com/mind-vm/thinking-core/agentloop"
 )
 
 // renderer is the output shape for one invocation. Subcommands drive
@@ -57,7 +57,7 @@ func (h *humanRenderer) event(evt agentloop.RunEvent) {
 	}
 	switch evt.Type {
 	case "execute_js":
-		h.frame("run()", evt.Content)
+		h.frame("script", evt.Content)
 	case "execute_js_result":
 		h.frame("result", evt.Content)
 	case "compacted":

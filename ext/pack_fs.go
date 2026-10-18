@@ -9,7 +9,7 @@ import (
 
 	"github.com/dop251/goja"
 
-	"github.com/mind-vm/agentloop/sandbox"
+	"github.com/mind-vm/thinking-core/sandbox"
 )
 
 // WorkspaceOptions tunes WorkspacePack. The zero value is usable: every
@@ -30,6 +30,17 @@ type WorkspaceOptions struct {
 	// loudly instead of hanging the run. Zero uses 50,000.
 	MaxWalkFiles int
 
+	// RequireReadBeforeWrite refuses a writeFile or editFile on a path
+	// the run has not read. An edit composed from memory is how
+	// "does not contain that text" happens; reading first is what a
+	// person does and what the refusal asks for.
+	RequireReadBeforeWrite bool
+
+	// PreRead are paths the run may write without reading, because
+	// their contents were already put in front of the model — a
+	// preloaded workspace has been read in every sense that matters.
+	PreRead []string
+
 	// SkipDirs are directory names never descended into. Nil uses
 	// {".git"} — not source, frequently enormous, and its config can
 	// hold credentials. Set explicitly to add vendor trees.
@@ -39,6 +50,19 @@ type WorkspaceOptions struct {
 	// no human is available, and a denied write simply fails — the same
 	// contract the fetch pack's InputRequester has.
 	Approver sandbox.InputRequester
+
+	// Refuse, when it returns a non-empty reason, refuses a writeFile or
+	// editFile on that path outright: before the policy, and without
+	// asking the Approver. It is for files no one should change by hand
+	// — a lockfile, generated code — where a yes in the approval prompt
+	// would still be the wrong change. The reason reaches the model
+	// verbatim, so it should name what to do instead.
+	Refuse func(rel string) string
+
+	// BeforeWrite runs once a mutation is authorised and before anything
+	// is written, with the path about to change. It is where a caller
+	// records the state the change will be compared against.
+	BeforeWrite func(ctx context.Context, rel string)
 }
 
 func (o WorkspaceOptions) maxFileBytes() int64 {
@@ -84,6 +108,9 @@ func (o WorkspaceOptions) skipDirs() []string {
 // prompt again for a write to the same file.
 func WorkspacePack(ctx context.Context, root *os.Root, opts WorkspaceOptions) sandbox.Pack {
 	w := &workspace{ctx: ctx, root: root, opts: opts}
+	for _, p := range opts.PreRead {
+		w.markRead(p)
+	}
 
 	return sandbox.Pack{
 		Name:        "workspace",
@@ -144,6 +171,31 @@ type workspace struct {
 	opts WorkspaceOptions
 	rt   *goja.Runtime
 	sb   *sandbox.Sandbox
+
+	// read is every path readFile has returned this run, plus whatever
+	// PreRead named. It gates mutations under RequireReadBeforeWrite.
+	read map[string]bool
+}
+
+// markRead records a path as read, so a later write may proceed.
+func (w *workspace) markRead(rel string) {
+	if w.read == nil {
+		w.read = map[string]bool{}
+	}
+	w.read[rel] = true
+}
+
+// requireRead refuses a mutation of a file the run has not looked at.
+// The refusal names the file and the one call that unblocks it: in this
+// loop the error string is the only documentation the model re-reads.
+func (w *workspace) requireRead(tool, rel string) {
+	if !w.opts.RequireReadBeforeWrite || w.read[rel] {
+		return
+	}
+	if _, err := w.root.Stat(rel); err != nil {
+		return // a new file has nothing to read
+	}
+	w.throw("%s: %s has not been read this run — call readFile(%q) first, then edit what it actually contains", tool, rel, rel)
 }
 
 // --- path handling --------------------------------------------------
@@ -216,4 +268,24 @@ func (w *workspace) authorize(tool, rel string) {
 		w.throw("%s: the user declined to allow changes to %s", tool, rel)
 	}
 	w.sb.Emit(sandbox.Event{Kind: sandbox.EventAskResult, Summary: "approved: " + rel})
+}
+
+// refuse applies WorkspaceOptions.Refuse. It runs before requireRead
+// and authorize: reading a file first does not make it editable, and
+// nobody should be asked to approve a change that is wrong either way.
+func (w *workspace) refuse(tool, rel string) {
+	if w.opts.Refuse == nil {
+		return
+	}
+	if reason := w.opts.Refuse(rel); reason != "" {
+		w.sb.Emit(sandbox.Event{Kind: sandbox.EventError, Summary: tool + " refused: " + rel, Detail: reason})
+		w.throw("%s: %s", tool, reason)
+	}
+}
+
+// beforeWrite applies WorkspaceOptions.BeforeWrite.
+func (w *workspace) beforeWrite(rel string) {
+	if w.opts.BeforeWrite != nil {
+		w.opts.BeforeWrite(w.ctx, rel)
+	}
 }

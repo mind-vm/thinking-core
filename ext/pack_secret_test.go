@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mind-vm/agentloop/ext"
-	"github.com/mind-vm/agentloop/sandbox"
+	"github.com/mind-vm/thinking-core/ext"
+	"github.com/mind-vm/thinking-core/sandbox"
 )
 
 // TestSecretPack_ReturnsValue confirms the bare global secret(name)
@@ -101,7 +101,7 @@ func TestSecretPack_DeniedByDefaultPolicy(t *testing.T) {
 	s := sandbox.New(ext.SecretPack(context.Background(), func(string) (string, error) { return "x", nil }))
 	s.SetPolicy(sandbox.DefaultPolicy{})
 	_, err := s.Execute(`secret("X")`)
-	if err == nil || !strings.Contains(err.Error(), "denied by the default sandbox policy") {
+	if err == nil || !strings.Contains(err.Error(), "not permitted in this run") {
 		t.Fatalf("expected policy denial, got: %v", err)
 	}
 }
