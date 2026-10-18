@@ -306,7 +306,7 @@ func newSession(o *options, warn func(string), in *bufio.Reader) (*session, erro
 	//
 	// Not merely to save tokens: RunRequest.Context is appended to the
 	// SYSTEM prompt, and the budget never drops that — it is what
-	// carries the run()/answer() protocol and the whole tool surface. So
+	// carries the script/answer() protocol and the whole tool surface. So
 	// an oversized AGENTS.md is not a prompt that gets trimmed, it is a
 	// prompt that cannot be sent, and no budget setting rescues it. The
 	// excerpt is the only thing that does.

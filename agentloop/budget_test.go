@@ -96,7 +96,7 @@ func TestContextBudgetMarksWhatItDropped(t *testing.T) {
 	}
 }
 
-// An execution result whose run() block was dropped reads to the model
+// An execution result whose script block was dropped reads to the model
 // as output from a script it cannot see. compact.go avoids that by
 // keeping one more message; a hard ceiling has no such option, so the
 // orphan must go too.
@@ -109,9 +109,9 @@ func TestContextBudgetNeverStrandsAnExecutionResult(t *testing.T) {
 		{Role: "user", Content: "newest"},
 	}
 	// Sized so the retained tail would otherwise start at the execution
-	// result, with its run() block just past the cut: the floor
+	// result, with its script block just past the cut: the floor
 	// (system + newest + marker) is 48 tokens, the execution result
-	// adds 13 and the run() block that produced it another 17, so a
+	// adds 13 and the script block that produced it another 17, so a
 	// 70-token allowance admits exactly the orphan.
 	budget := ContextBudget{MaxTokens: 140, Reserve: 70}
 
@@ -119,7 +119,7 @@ func TestContextBudgetNeverStrandsAnExecutionResult(t *testing.T) {
 
 	for _, m := range fit.Messages {
 		if isExecutionResult(m) {
-			t.Fatalf("execution result retained without its run() block:\n%#v", fit.Messages)
+			t.Fatalf("execution result retained without its script block:\n%#v", fit.Messages)
 		}
 	}
 	if fit.Dropped != 3 {

@@ -458,7 +458,7 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 	history = append(history, llm.Message{Role: "user", Content: req.Message})
 	// baseLen marks the end of the prior conversation, before this Run
 	// appends anything of its own — elideStaleCode uses it so eliding
-	// stale run() bodies never touches an earlier run's real final
+	// stale script bodies never touches an earlier run's real final
 	// answer (see shape.go).
 	baseLen := len(history)
 
@@ -512,7 +512,7 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 		// source every turn is pure triangular accumulation. Keep only
 		// the most recent block (for error-retry continuity) plus all logs.
 		messages := append([]llm.Message{{Role: "system", Content: sysPrompt}}, elideStaleCode(history, baseLen)...)
-		// The shape of the args this turn's run() will receive is
+		// The shape of the state this turn's script will receive is
 		// injected EPHEMERALLY — built fresh each call, never stored in
 		// history — so the digest appears exactly once.
 		if shape := dataShape(prevState); shape != "" {

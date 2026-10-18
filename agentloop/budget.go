@@ -75,7 +75,7 @@ type TokenEstimator func(string) int
 // When enabled, the loop trims each turn's request immediately before
 // sending it — after compaction, after stale-code elision, and after
 // this run's own turns have grown the history. That placement is the
-// point: history grows DURING a Run (every run() block and execution
+// point: history grows DURING a Run (every script block and execution
 // result appends to it), so a check performed once at rehydrate time
 // would pass and then overflow three turns later.
 //
@@ -178,7 +178,7 @@ type budgetFit struct {
 // turns first.
 //
 // messages[0] must be the system prompt and is never dropped: without
-// it the model loses the run()/answer() protocol and the entire tool
+// it the model loses the script/answer() protocol and the entire tool
 // surface, so a request that fits by discarding it is worse than one
 // that overflows. The final message — the current user turn, or the
 // args-shape digest that follows it — is likewise mandatory, since
@@ -219,7 +219,7 @@ func (b ContextBudget) fit(messages []llm.Message) budgetFit {
 	}
 
 	// Never begin the retained history with an execution result whose
-	// run() block was just dropped — orphaned output reads to the model
+	// script block was just dropped — orphaned output reads to the model
 	// as the result of a script it cannot see. compact.go solves the
 	// same problem by moving the cut BACK to include the block; here
 	// the cut moves FORWARD and drops the result too, because at a hard

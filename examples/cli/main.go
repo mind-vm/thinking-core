@@ -96,7 +96,7 @@ func main() {
 func printEvent(evt agentloop.RunEvent) {
 	switch evt.Type {
 	case "execute_js":
-		fmt.Fprintf(os.Stderr, "\n--- run() ---\n%s\n", evt.Content)
+		fmt.Fprintf(os.Stderr, "\n--- script ---\n%s\n", evt.Content)
 	case "execute_js_result":
 		fmt.Fprintf(os.Stderr, "--- result ---\n%s\n", evt.Content)
 	case "response_chunk":

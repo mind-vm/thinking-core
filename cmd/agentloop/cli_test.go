@@ -268,7 +268,7 @@ func TestHumanRendererSeparatesStreams(t *testing.T) {
 	var out, errOut bytes.Buffer
 	h := &humanRenderer{out: &out, errOut: &errOut}
 
-	h.event(agentloop.RunEvent{Type: "execute_js", Content: "function run() {}"})
+	h.event(agentloop.RunEvent{Type: "execute_js", Content: "state.n = 1;"})
 	h.event(agentloop.RunEvent{Type: "execute_js_result", Content: "42"})
 	h.result(agentloop.RunResult{Status: "completed", FinalText: "84", Steps: 2})
 
@@ -277,7 +277,7 @@ func TestHumanRendererSeparatesStreams(t *testing.T) {
 		t.Fatalf("stdout = %q, want %q", got, "84\n")
 	}
 	stderr := errOut.String()
-	for _, want := range []string{"run()", "function run() {}", "result", "42", "completed · 2 steps"} {
+	for _, want := range []string{"script", "state.n = 1;", "result", "42", "completed · 2 steps"} {
 		if !strings.Contains(stderr, want) {
 			t.Errorf("stderr missing %q\ngot:\n%s", want, stderr)
 		}
@@ -374,7 +374,7 @@ func TestJSONRendererEmitsOnePerLine(t *testing.T) {
 	var out, errOut bytes.Buffer
 	j := &jsonRenderer{out: &out, errOut: &errOut}
 
-	j.event(agentloop.RunEvent{Type: "execute_js", Content: "function run() {}"})
+	j.event(agentloop.RunEvent{Type: "execute_js", Content: "state.n = 1;"})
 	j.event(agentloop.RunEvent{Type: "response_chunk", Content: "dropped by default"})
 	j.result(agentloop.RunResult{
 		RunID: "s-1", Status: "completed", FinalText: "84", Steps: 2,
@@ -385,7 +385,7 @@ func TestJSONRendererEmitsOnePerLine(t *testing.T) {
 	if len(lines) != 2 {
 		t.Fatalf("want 2 lines (chunk dropped), got %d: %v", len(lines), lines)
 	}
-	if lines[0]["type"] != "execute_js" || lines[0]["content"] != "function run() {}" {
+	if lines[0]["type"] != "execute_js" || lines[0]["content"] != "state.n = 1;" {
 		t.Errorf("first line wrong: %v", lines[0])
 	}
 

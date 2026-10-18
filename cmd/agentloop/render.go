@@ -57,7 +57,7 @@ func (h *humanRenderer) event(evt agentloop.RunEvent) {
 	}
 	switch evt.Type {
 	case "execute_js":
-		h.frame("run()", evt.Content)
+		h.frame("script", evt.Content)
 	case "execute_js_result":
 		h.frame("result", evt.Content)
 	case "compacted":

@@ -39,7 +39,7 @@ func isStaleCodeCopy(code string) bool {
 // untouched.
 //
 // fromIndex marks where THIS run's own history additions begin (its
-// run() blocks + execution-result turns) — everything before it is
+// script blocks + execution-result turns) — everything before it is
 // real prior-conversation content, most importantly an earlier run's
 // actual final answer. Eliding indiscriminately across the whole
 // history would, once this run appends its own assistant turn,

@@ -17,7 +17,7 @@ import "github.com/mind-vm/thinking-core/sandbox"
 const (
 	// avgMessageTokens is what one conversational turn costs, used to
 	// convert a token allowance into the MESSAGE counts the compactor
-	// is configured in. Empirical and rough: a run() block, an
+	// is configured in. Empirical and rough: a script block, an
 	// execution result, or a paragraph of answer all land near it, and
 	// the figure only has to be right to within a factor of two for the
 	// derived Trigger to be sensible.

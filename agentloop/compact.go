@@ -45,7 +45,7 @@ func decodeCheckpoint(raw json.RawMessage) (CompactionCheckpoint, error) {
 	return cp, nil
 }
 
-// executionResultPrefix labels the user turn that carries a run()'s
+// executionResultPrefix labels the user turn that carries a script's
 // logs back to the model. The loop writes it (run.go), history replay
 // reconstructs it (history.go), and compaction recognises it to avoid
 // splitting a script away from its own output — so it lives here, in
@@ -288,7 +288,7 @@ func (c *SummarizingCompactor) bounds() (trigger, keep int) {
 }
 
 // safeSplitPoint adjusts a desired split so the retained tail never
-// begins with an execution result whose run() block is on the other
+// begins with an execution result whose script block is on the other
 // side of the cut. An orphaned result reads to the model as output from
 // a script it cannot see, which is worse than sending one more message.
 //
@@ -433,7 +433,7 @@ func (c *SummarizingCompactor) chunkBounds() (int, TokenEstimator) {
 // into pieces that each fit allowance tokens.
 //
 // Splits fall on message boundaries: a chunk is whole turns, so the
-// summarizing model never reads half a run() block. The one exception
+// summarizing model never reads half a script block. The one exception
 // is a single message too large for a chunk of its own — that one gets
 // its middle elided, which is the last remaining place this package
 // discards transcript rather than summarizing it.

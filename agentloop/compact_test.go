@@ -63,7 +63,7 @@ func (s *stubSummarizer) Stream(ctx context.Context, req llm.CompletionRequest, 
 }
 
 // turns builds a history of n exchanges: a user ask followed by
-// alternating run() blocks and their execution results.
+// alternating script blocks and their execution results.
 func turns(n int) []llm.Message {
 	out := []llm.Message{{Role: "user", Content: "do the thing"}}
 	for i := range n {
@@ -234,7 +234,7 @@ func TestCompactNeverStrandsAnExecutionResult(t *testing.T) {
 		t.Fatalf("tail opens with an orphaned execution result: %q", first.Content)
 	}
 	if first.Role != "assistant" {
-		t.Fatalf("tail should open with the run() block, got role %q", first.Role)
+		t.Fatalf("tail should open with the script block, got role %q", first.Role)
 	}
 }
 
