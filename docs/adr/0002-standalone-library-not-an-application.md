@@ -3,7 +3,7 @@
 - **Status:** Working
 - **Confidence:** High
 - **Decided:** 2026-08-21
-- **Last reviewed:** 2026-08-28
+- **Last reviewed:** 2026-10-18
 - **Consumers:** `cmd/agentloop`, the CLI in this repository — the first real
   one, and in-tree rather than external. The ancestors
   (`studio-apps/core/agentloop`, mybrain) still run their own copies, so the

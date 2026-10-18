@@ -3,7 +3,7 @@
 - **Status:** Working
 - **Confidence:** Medium
 - **Decided:** 2026-08-21 (the wire), 2026-08-26 (the retries)
-- **Last reviewed:** 2026-08-28
+- **Last reviewed:** 2026-10-18
 - **Consumers:** every caller — `llm.Client` is how the loop reaches a model at
   all.
 

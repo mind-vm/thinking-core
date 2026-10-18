@@ -3,7 +3,7 @@
 - **Status:** Working
 - **Confidence:** Medium
 - **Decided:** 2026-08-21
-- **Last reviewed:** 2026-09-03
+- **Last reviewed:** 2026-10-18
 - **Consumers:** every application — persistence is the one thing agentloop
   deliberately does not provide.
 

@@ -3,7 +3,7 @@
 - **Status:** Working
 - **Confidence:** High
 - **Decided:** 2026-06 (in `core/agentloop`), reshaped for the library 2026-08-21
-- **Last reviewed:** 2026-08-28
+- **Last reviewed:** 2026-10-18
 - **Consumers:** every application that adds a primitive — `Capability`,
   `SandboxBuilder` and `PolicyChecker` are the three seams the README's
   *Extending* section is about.

@@ -3,7 +3,7 @@
 - **Status:** Working
 - **Confidence:** High
 - **Decided:** 2026-03 (in `thinking-core`), reconfirmed 2026-08-21
-- **Last reviewed:** 2026-08-28
+- **Last reviewed:** 2026-10-18
 - **Consumers:** the whole library — every other record here assumes it.
 
 ## Context
@@ -33,7 +33,7 @@ code-execution-with-MCP all arrive at the same place independently.
 
 The model gets **exactly one tool — a JavaScript sandbox** — and every
 capability is a function inside it. Each turn it emits one fenced
-` ```javascript ` block defining `function run(args) { ... }`; the loop parses
+` ```javascript ` block — a plain script ([ADR-0017](0017-scripts-keep-data-in-state.md)); the loop parses
 it out of the response text, executes it, and feeds the outcome back. A run ends
 when the script calls `answer(result)`.
 
