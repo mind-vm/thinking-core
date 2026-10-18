@@ -67,7 +67,7 @@ func TestArgsFallsBackToAnEmptyObject(t *testing.T) {
 	}
 }
 
-// A script with no run() is not an error: it executes for its side
+// A script that keeps nothing is not an error: it executes for its side
 // effects, and what it leaves in state threads on unchanged.
 func TestScriptWithoutRunExecutesForSideEffects(t *testing.T) {
 	s := New()

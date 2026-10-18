@@ -15,7 +15,7 @@ import (
 
 // buildSandbox wires discovered skills through the same builder an
 // application would use, so the test exercises the real path from
-// SKILL.md on disk to what a run() script can see.
+// SKILL.md on disk to what a script can see.
 func buildSandbox(t *testing.T, sk []skills.Skill, enabled *[]string) *sandbox.Sandbox {
 	t.Helper()
 	builder := &agentloop.DefaultSandboxBuilder{

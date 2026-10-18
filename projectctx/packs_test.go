@@ -309,7 +309,7 @@ func TestPackDeclaresItsPrimitives(t *testing.T) {
 }
 
 // execString runs an expression in the sandbox and returns its string
-// result, via the same run()/return protocol the loop uses.
+// result, via the same state protocol the loop uses.
 func execString(t *testing.T, sb *sandbox.Sandbox, expr string) string {
 	t.Helper()
 	_, ret, err := sb.ExecuteTurn("state = (function(args){ return "+expr+"; })(state);", json.RawMessage(`{}`))

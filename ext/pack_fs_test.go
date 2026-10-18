@@ -42,7 +42,7 @@ func workspaceAt(t *testing.T, files map[string]string, opts ext.WorkspaceOption
 	return sb, dir
 }
 
-// run executes one turn and returns what run() returned, as JSON —
+// run executes one script and returns what it left in state, as JSON —
 // which is exactly what the loop threads forward, so asserting on it
 // asserts on what the next turn would actually see.
 func run(t *testing.T, sb *sandbox.Sandbox, script string) string {
