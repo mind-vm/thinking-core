@@ -227,6 +227,10 @@ func proseCorrection(finish string) string {
 		"Reply with one ```javascript block, and " + finish + "."
 }
 
+// emptyReplyCorrection follows a reply that used output tokens but arrived
+// with no text.
+const emptyReplyCorrection = "Your reply arrived empty: nothing you wrote reached the sandbox. Write the script as text, in one ```javascript fenced block, and nothing else."
+
 // staleCodeCorrection is sent after a reply that copied the placeholder
 // standing in for an earlier script.
 func staleCodeCorrection(finish string) string {
@@ -607,6 +611,18 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 				emptyRetries++
 				l.emit(req.OnEvent, RunEvent{Type: "warning", Content: "empty model turn, retrying"})
 				turnSpan.AddEvent("empty model turn, retrying")
+				// Output tokens with no text means the model answered in a
+				// form the provider did not pass on as text — Gemini behind
+				// an OpenAI-compatible proxy does this with code it emits as
+				// a native executable-code part. Resending the same prompt
+				// gets the same reply (proxies cache, and the model is
+				// close to deterministic), so say what arrived instead.
+				if resp.OutputTokens > 0 {
+					history = append(history,
+						llm.Message{Role: "assistant", Content: "(no text arrived)", ThoughtSignatures: sigs},
+						llm.Message{Role: "user", Content: emptyReplyCorrection},
+					)
+				}
 				return RunResult{}, nil, false
 			}
 			writeStep(RunStep{

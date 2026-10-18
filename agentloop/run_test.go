@@ -293,6 +293,26 @@ func TestRun_RequireScript_NamesTheToolCall(t *testing.T) {
 // TestRun_RequireScript_CorrectsACopiedPlaceholder: a reply that copies
 // the elided-script marker is not run as a no-op turn; the model is told
 // what it copied and asked for the next script.
+// An empty reply that still used output tokens is answered with a
+// correction rather than resent unchanged: the same prompt behind a proxy
+// returns the same empty reply.
+func TestRun_EmptyBilledReplyIsCorrected(t *testing.T) {
+	fake := newFakeLLM("fake",
+		llm.CompletionResponse{Content: "", OutputTokens: 200},
+		llm.CompletionResponse{Content: "DONE\nok"},
+	)
+	sessions := newMemorySessions()
+	sessions.put("s1", agentloop.Session{ID: "s1"})
+	loop := agentloop.New(agentloop.Config{LLM: fake, Sessions: sessions, Steps: newMemorySteps(), SandboxBuilder: emptyBuilder{}})
+	if _, err := loop.Run(context.Background(), agentloop.RunRequest{SessionID: "s1", Message: "hi"}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	msgs := fake.Calls()[1].Messages
+	if last := msgs[len(msgs)-1].Content; !strings.Contains(last, "arrived empty") {
+		t.Errorf("second call should end with the empty-reply correction, got %q", last)
+	}
+}
+
 func TestRun_RequireScript_CorrectsACopiedPlaceholder(t *testing.T) {
 	copied := "```javascript\n// earlier turn, body omitted: its logs are in the next message and what it kept is in state\n```"
 	fake := newFakeLLM("fake",
