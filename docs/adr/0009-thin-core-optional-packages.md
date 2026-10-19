@@ -3,7 +3,7 @@
 - **Status:** Working
 - **Confidence:** High
 - **Decided:** 2026-08-21, extended with each package since
-- **Last reviewed:** 2026-08-28
+- **Last reviewed:** 2026-10-19
 - **Consumers:** anyone importing `agentloop` who does not want kin-openapi,
   goldmark, an OTel SDK or an HTTP client in their build.
 
@@ -87,3 +87,7 @@ direction that cannot be undone without a breaking release.
 - 2026-08-28 — `agentloopsql`, `cmd/agentloop` and the host-reaching `ext` packs
   landed, all as siblings; `AGENTS.md` now states the core-cannot-touch-the-host
   rule this record's layering exists to serve.
+- 2026-10-19 — `agentrun` added as a sibling: the wire shape, SSE writer and
+  `ask()` broker that two applications serving runs over HTTP had each
+  written the same way. It imports `net/http`, which the core does not, so it
+  is a package a caller opts into rather than part of `agentloop`.

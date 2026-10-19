@@ -48,6 +48,12 @@ is kept verbatim) and large data never appears in the context window twice.
   behavioural guarantees the loop relies on — see `agentloopmem`'s own
   `contract_test.go` for the worked example, and `agentloopsql` for a
   second implementation held to exactly the same bar.
+- **`agentrun`** — a run behind an HTTP API: `Event`, the loop's events
+  re-cased for a JSON wire; `Stream`, a Server-Sent Events writer safe for
+  the loop's goroutines that ends every run with exactly one `done`; and
+  `Broker`, which holds a script's blocking `ask()` open until a person's
+  reply arrives on another request, and refuses a reply from another tenant.
+  No router, no auth, no store — the application keeps those.
 - **`ext`** — optional `sandbox.Pack`s that are generically useful but
   don't belong in the core sandbox package: `EmailPack` (`sendEmail`),
   `SecretPack` (`secret`), `SearchPack` (`documentSearch`), `StoresPack`

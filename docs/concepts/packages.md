@@ -64,6 +64,18 @@ real implementation.
 own `StepStore` implementation (Postgres, SQLite, whatever) to hold it to
 the same behavioural guarantees the loop relies on.
 
+## `agentrun`
+
+The transport half of a run behind an HTTP API. `FromRunEvent` re-cases the
+loop's events for a camelCase JSON wire; `Open` returns a `Stream` that
+writes them as Server-Sent Events from the loop's own goroutines and
+`Finish` closes it with exactly one `done`, after an `error` when the run
+failed. `Broker` is the `InputRequester` for `ask()` when the answer arrives
+on a different request: it announces an `input_request` event with an id,
+blocks until `Reply` resolves it, and keys every run on a tenant so another
+tenant's reply reads as "no live run". It takes opaque ids and an
+`http.ResponseWriter`; routing, auth and storage stay with the application.
+
 ## `ext`
 
 Optional `sandbox.Pack`s that are generically useful but don't belong in the
