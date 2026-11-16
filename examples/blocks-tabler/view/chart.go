@@ -12,7 +12,7 @@ import (
 
 // chartProps maps an emitChart spec onto tabler-templ's chart. The pack has
 // already checked that x and every series name a key some row has; what is
-// left here is the shape each ApexCharts type wants its data in.
+// left here is the shape each chart type wants its data in.
 //
 // A variant this table does not know is drawn as bars rather than refused:
 // the spec passed the pack, so its numbers are real, and a chart in the
@@ -38,15 +38,10 @@ func chartProps(id string, p map[string]any) chart.Props {
 		types, _ := p["types"].(map[string]any)
 		props.Type = chart.Line
 		props.Categories, props.Series = categories(data, x), columns(data, series)
-		// ApexCharts draws a mixed chart's columns with the line stroke
-		// around them unless each serie gets its own width.
-		props.StrokeWidth = make([]float64, len(series))
 		for i := range props.Series {
 			switch t, _ := types[series[i]].(string); t {
-			case "line":
-				props.Series[i].Type, props.StrokeWidth[i] = "line", 2
-			case "area":
-				props.Series[i].Type, props.StrokeWidth[i] = "area", 2
+			case "line", "area":
+				props.Series[i].Type = t
 			default:
 				props.Series[i].Type = "column"
 			}
@@ -62,6 +57,16 @@ func chartProps(id string, p map[string]any) chart.Props {
 	case "scatter":
 		props.Type = chart.Scatter
 		props.Series = points(data, x, series, "")
+		// tabler-templ (v0.23) gives a scatter a category x axis, which
+		// places each point at the index its x value names, not at the
+		// value. A list in Options replaces the built axis.
+		props.Options = map[string]any{"xAxis": []any{map[string]any{
+			"type": "value", "scale": true,
+			"axisLine":  map[string]any{"show": false},
+			"axisTick":  map[string]any{"show": false},
+			"axisLabel": map[string]any{"color": "var(--tblr-secondary)", "fontSize": 11, "hideOverlap": true},
+			"splitLine": map[string]any{"show": false},
+		}}}
 	case "bubble":
 		props.Type = chart.Bubble
 		props.Series = points(data, x, series, str(p, "size"))
@@ -155,7 +160,7 @@ func points(data []map[string]any, x string, names []string, size string) []char
 		out = append(out, chart.Serie{Name: n, Points: pts})
 	}
 	if size != "" {
-		// One serie per value column is ApexCharts' bubble shape too, but
+		// One serie per value column is tabler-templ's bubble shape too, but
 		// the pack declares a single y column for it.
 		out = out[:min(1, len(out))]
 	}
@@ -163,7 +168,7 @@ func points(data []map[string]any, x string, names []string, size string) []char
 }
 
 // calendar lays daily values out as GitHub-style weeks: one serie per
-// weekday, one column per week. ApexCharts' heatmap has no calendar mode,
+// weekday, one column per week. The heatmap has no calendar mode,
 // and a heatmap of raw dates on one row is unreadable past a month.
 func calendar(data []map[string]any, x, value string) []chart.Serie {
 	byDay := map[string]float64{}
@@ -184,7 +189,7 @@ func calendar(data []map[string]any, x, value string) []chart.Serie {
 	slices.Sort(order)
 	days := []string{"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}
 	out := make([]chart.Serie, 0, 7)
-	// ApexCharts stacks heatmap series bottom up; reversed, Monday is on top.
+	// The weekday axis runs bottom up; reversed, Monday is on top.
 	for i := 6; i >= 0; i-- {
 		pts := make([]chart.Point, len(order))
 		for j, w := range order {

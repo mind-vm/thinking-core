@@ -9,7 +9,7 @@ replace github.com/mind-vm/thinking-core => ../..
 require (
 	github.com/a-h/templ v0.3.1100
 	github.com/google/uuid v1.6.0
-	github.com/mind-vm/tabler-templ v0.10.1
+	github.com/mind-vm/tabler-templ v0.23.0
 	github.com/mind-vm/thinking-core v0.6.0
 	github.com/yuin/goldmark v1.8.7
 )
