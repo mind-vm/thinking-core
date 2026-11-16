@@ -32,7 +32,7 @@ type Block struct {
 	DOMID string
 	// ChartID names the chart element. It is fresh on every emit, unlike
 	// DOMID: the replaced copy's chart is still being torn down when the
-	// new one starts, and two charts under one ApexCharts id fight.
+	// new one starts, and two charts under one chart id fight.
 	ChartID string
 	// Revised marks a block that replaces one from an earlier turn, so the
 	// reader knows the figure up the page they remember is gone.

@@ -1,7 +1,7 @@
 // Command blocks-tabler is ext.BlocksPack drawn on the server: the same
 // agent, dataset and ask() flow as examples/blocks, but every block reaches
 // the browser as a Tabler HTML fragment rendered with tabler-templ, so there
-// is no Node, no bundle and no client-side chart code beyond ApexCharts.
+// is no Node, no bundle and no client-side chart code beyond ECharts.
 //
 // Usage:
 //

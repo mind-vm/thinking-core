@@ -20,8 +20,8 @@ func render(t *testing.T, b Block) string {
 	return out
 }
 
-// chartConfig pulls the ApexCharts config out of a rendered chart block —
-// the thing ApexCharts will actually draw, which is what has to be right.
+// chartConfig pulls the ECharts option out of a rendered chart block —
+// the thing ECharts will actually draw, which is what has to be right.
 func chartConfig(t *testing.T, out string) map[string]any {
 	t.Helper()
 	m := regexp.MustCompile(`data-tabler-chart="([^"]*)"`).FindStringSubmatch(out)
@@ -29,12 +29,37 @@ func chartConfig(t *testing.T, out string) map[string]any {
 		t.Fatalf("no chart in %s", out)
 	}
 	var cfg struct {
-		Config map[string]any `json:"config"`
+		Option map[string]any `json:"option"`
 	}
 	if err := json.Unmarshal([]byte(html.UnescapeString(m[1])), &cfg); err != nil {
 		t.Fatal(err)
 	}
-	return cfg.Config
+	if cfg.Option == nil {
+		t.Fatalf("chart carries no option: %s", m[1])
+	}
+	return cfg.Option
+}
+
+// at walks a decoded JSON value by map keys and list indexes.
+func at(t *testing.T, v any, path ...any) any {
+	t.Helper()
+	for _, k := range path {
+		switch k := k.(type) {
+		case string:
+			m, ok := v.(map[string]any)
+			if !ok {
+				t.Fatalf("%v: not an object at %q", path, k)
+			}
+			v = m[k]
+		case int:
+			l, ok := v.([]any)
+			if !ok || k >= len(l) {
+				t.Fatalf("%v: no element %d", path, k)
+			}
+			v = l[k]
+		}
+	}
+	return v
 }
 
 func payload(t *testing.T, js string) map[string]any {
@@ -61,50 +86,62 @@ func TestFragmentOmitsChartScript(t *testing.T) {
 func TestBarChartSeriesAndCategories(t *testing.T) {
 	cfg := chartConfig(t, render(t, Block{Type: "chart", ChartID: "c", Payload: payload(t,
 		`{"variant":"bar","x":"month","series":["revenue","cost"],"data":[{"month":"Jan","revenue":10,"cost":"4"},{"month":"Feb","revenue":12.5,"cost":5}]}`)}))
-	cats := cfg["xaxis"].(map[string]any)["categories"].([]any)
+	cats := at(t, cfg, "xAxis", 0, "data").([]any)
 	if len(cats) != 2 || cats[0] != "Jan" {
 		t.Fatalf("categories = %v", cats)
 	}
 	series := cfg["series"].([]any)
-	if len(series) != 2 {
+	if len(series) != 2 || at(t, series, 0, "type") != "bar" {
 		t.Fatalf("series = %v", series)
 	}
-	cost := series[1].(map[string]any)
 	// A numeric string is a number: CSV parsed in a script stays text.
-	if d := cost["data"].([]any); d[0] != 4.0 || d[1] != 5.0 {
+	if d := at(t, series, 1, "data").([]any); d[0] != 4.0 || d[1] != 5.0 {
 		t.Fatalf("cost data = %v", d)
+	}
+}
+
+// Lines are straight: a spline would draw values between the points that
+// no row holds.
+func TestLineIsStraight(t *testing.T) {
+	cfg := chartConfig(t, render(t, Block{Type: "chart", ChartID: "c", Payload: payload(t,
+		`{"variant":"line","x":"m","series":["v"],"data":[{"m":"Jan","v":1},{"m":"Feb","v":3}]}`)}))
+	if s := at(t, cfg, "series", 0).(map[string]any); s["type"] != "line" || s["smooth"] != nil {
+		t.Fatalf("serie = %v", s)
 	}
 }
 
 func TestDonutIsOneSlicePerRow(t *testing.T) {
 	cfg := chartConfig(t, render(t, Block{Type: "chart", ChartID: "c", Payload: payload(t,
 		`{"variant":"donut","x":"product","series":["revenue"],"data":[{"product":"A","revenue":3},{"product":"B","revenue":7}]}`)}))
-	if cfg["chart"].(map[string]any)["type"] != "donut" {
-		t.Fatalf("type = %v", cfg["chart"])
+	pie := at(t, cfg, "series", 0).(map[string]any)
+	// A donut is a pie with an inner radius.
+	if pie["type"] != "pie" || at(t, pie, "radius", 0) == "0%" {
+		t.Fatalf("serie = %v", pie)
 	}
-	if l := cfg["labels"].([]any); len(l) != 2 || l[1] != "B" {
-		t.Fatalf("labels = %v", l)
-	}
-	if s := cfg["series"].([]any); s[1] != 7.0 {
-		t.Fatalf("series = %v", s)
+	slices := pie["data"].([]any)
+	if len(slices) != 2 || at(t, slices, 1, "name") != "B" || at(t, slices, 1, "value") != 7.0 {
+		t.Fatalf("slices = %v", slices)
 	}
 }
 
 func TestCompositeTypesEachSerie(t *testing.T) {
 	cfg := chartConfig(t, render(t, Block{Type: "chart", ChartID: "c", Payload: payload(t,
 		`{"variant":"composite","x":"m","series":["orders","revenue"],"types":{"revenue":"line"},"data":[{"m":"Jan","orders":3,"revenue":10}]}`)}))
-	series := cfg["series"].([]any)
-	if series[0].(map[string]any)["type"] != "column" || series[1].(map[string]any)["type"] != "line" {
-		t.Fatalf("series = %v", series)
+	if at(t, cfg, "series", 0, "type") != "bar" || at(t, cfg, "series", 1, "type") != "line" {
+		t.Fatalf("series = %v", cfg["series"])
 	}
 }
 
 func TestScatterDropsPointsWithoutCoordinates(t *testing.T) {
 	cfg := chartConfig(t, render(t, Block{Type: "chart", ChartID: "c", Payload: payload(t,
 		`{"variant":"scatter","x":"a","series":["b"],"data":[{"a":1,"b":2},{"a":"n/a","b":3},{"a":4,"b":5}]}`)}))
-	pts := cfg["series"].([]any)[0].(map[string]any)["data"].([]any)
+	pts := at(t, cfg, "series", 0, "data").([]any)
 	if len(pts) != 2 {
 		t.Fatalf("points = %v, want the two with both coordinates", pts)
+	}
+	// x is a value, not an index into categories that do not exist.
+	if typ := at(t, cfg, "xAxis", 0, "type"); typ != "value" {
+		t.Fatalf("x axis type = %v", typ)
 	}
 }
 
@@ -112,21 +149,26 @@ func TestHeatmapIsWeeksByWeekday(t *testing.T) {
 	// 2026-01-05 is a Monday, 2026-01-14 a Wednesday of the next week.
 	cfg := chartConfig(t, render(t, Block{Type: "chart", ChartID: "c", Payload: payload(t,
 		`{"variant":"heatmap","x":"day","series":["n"],"data":[{"day":"2026-01-05","n":2},{"day":"2026-01-14","n":5}]}`)}))
-	series := cfg["series"].([]any)
-	if len(series) != 7 {
-		t.Fatalf("%d series, want one per weekday", len(series))
+	days := at(t, cfg, "yAxis", 0, "data").([]any)
+	// The y axis runs bottom up, so Monday last is Monday on top.
+	if len(days) != 7 || days[0] != "Sun" || days[6] != "Mon" {
+		t.Fatalf("days = %v, want one per weekday, Monday last", days)
 	}
-	byName := map[string][]any{}
-	for _, s := range series {
-		m := s.(map[string]any)
-		byName[m["name"].(string)] = m["data"].([]any)
+	if weeks := at(t, cfg, "xAxis", 0, "data").([]any); len(weeks) != 2 || weeks[1] != "2026-01-12" {
+		t.Fatalf("weeks = %v", weeks)
 	}
-	mon, wed := byName["Mon"], byName["Wed"]
-	if len(mon) != 2 || mon[0].(map[string]any)["y"] != 2.0 || mon[1].(map[string]any)["y"] != nil {
-		t.Fatalf("Mon = %v", mon)
+	// Cells are [week, weekday, value]; a day without a row is "-".
+	cells := map[[2]float64]any{}
+	for _, c := range at(t, cfg, "series", 0, "data").([]any) {
+		c := c.([]any)
+		cells[[2]float64{c[0].(float64), c[1].(float64)}] = c[2]
 	}
-	if wed[1].(map[string]any)["y"] != 5.0 || wed[1].(map[string]any)["x"] != "2026-01-12" {
-		t.Fatalf("Wed = %v", wed)
+	mon, wed := 6.0, 4.0
+	if cells[[2]float64{0, mon}] != 2.0 || cells[[2]float64{1, mon}] != "-" {
+		t.Fatalf("Mon = %v, %v", cells[[2]float64{0, mon}], cells[[2]float64{1, mon}])
+	}
+	if cells[[2]float64{1, wed}] != 5.0 {
+		t.Fatalf("Wed of week 2 = %v", cells[[2]float64{1, wed}])
 	}
 }
 
@@ -134,8 +176,8 @@ func TestHeatmapIsWeeksByWeekday(t *testing.T) {
 func TestUnknownVariantDrawsBars(t *testing.T) {
 	cfg := chartConfig(t, render(t, Block{Type: "chart", ChartID: "c", Payload: payload(t,
 		`{"variant":"treemapish","x":"k","series":["v"],"data":[{"k":"a","v":1}]}`)}))
-	if cfg["chart"].(map[string]any)["type"] != "bar" {
-		t.Fatalf("type = %v", cfg["chart"])
+	if typ := at(t, cfg, "series", 0, "type"); typ != "bar" {
+		t.Fatalf("type = %v", typ)
 	}
 }
 

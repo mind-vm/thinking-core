@@ -19,16 +19,11 @@
     return t.content;
   };
 
-  // A chart lives on outside the DOM — ApexCharts keeps resize listeners
-  // and its instance — so a block that is replaced has its charts torn down
-  // first. tablerCharts.destroy also drops charts still queued to be drawn;
-  // the fallback, for a tabler-templ before it, reaches for the instance the
-  // script hangs on the element and leaves the queue alone.
+  // A chart lives on outside the DOM — ECharts keeps resize listeners and
+  // its instance — so a block that is replaced has its charts torn down
+  // first. tablerCharts.destroy also drops charts still queued to be drawn.
   const dropCharts = (el) => {
-    if (window.tablerCharts && window.tablerCharts.destroy) return window.tablerCharts.destroy(el);
-    el.querySelectorAll('[data-tabler-chart]').forEach((c) => {
-      try { c.tablerChart && c.tablerChart.destroy(); } catch (_) { /* already gone */ }
-    });
+    if (window.tablerCharts) window.tablerCharts.destroy(el);
   };
 
   const currentTurn = () => {
