@@ -109,6 +109,11 @@ is kept verbatim) and large data never appears in the context window twice.
 - **`evalmem`** — in-memory `eval.Store` for local dev and CI, same
   role `agentloopmem` plays for `SessionStore`/`StepStore`. Not for
   production traffic.
+- **`bench`** — a reproducible comparison of code-as-action against
+  plain native tool calling on retrieve → join → compute tasks: both
+  agents over the same seeded fixture backends, answers checked exactly
+  (no judge), tokens, turns and accuracy per model. `go run
+  ./bench/cmd/bench`; see [bench/README.md](bench/README.md).
 - **`redact`** — `Redactor`, a small ordered (value, placeholder) list
   that strips known secret values out of text or bytes; a nil
   `*Redactor` is a safe pass-through everywhere. `Config.Redactor` and
