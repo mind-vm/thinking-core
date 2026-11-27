@@ -3,7 +3,7 @@
 - **Status:** Replaced by [ADR-0017](0017-scripts-keep-data-in-state.md)
 - **Confidence:** High
 - **Decided:** 2026-06 (in `core/agentloop`), carried over 2026-08-21
-- **Last reviewed:** 2026-10-18
+- **Last reviewed:** 2026-11-27
 - **Consumers:** the library's public API — `RunResult.DataBytesCarried` exists
   to make the saving observable to a caller.
 
@@ -49,9 +49,10 @@ model holds in working memory and can fabricate; on the spend-cap eval that is
 the difference between passing and a confident wrong answer. And the digest
 removes the classic weak-model failure of guessing a field name.
 
-**Costs.** Nothing bounds the carry. A script can return an arbitrarily large
-object and the loop will hold it and thread it, run after run;
-`DataBytesCarried` gives a caller the observability to notice but not a limit.
+**Costs.** Nothing bounded the carry. A script could return an arbitrarily large
+object and the loop would hold it and thread it, run after run;
+`DataBytesCarried` gave a caller the observability to notice but not a limit.
+Since 2026-11-27 `Config.MaxStateBytes` caps it (default 4 MiB).
 The carry is also **in memory between turns**, which is the direct cause of the
 no-durable-execution gap in [ADR-0007](0007-goja-synchronous-runtime.md): a
 process restart mid-run loses it.
@@ -74,6 +75,8 @@ in `prompts.go` teaches `return`-to-carry / `log`-to-see.
 
 ## Revisions
 
+- 2026-11-27 — The carry is bounded by `Config.MaxStateBytes` (default 4 MiB); an
+  oversized state is a script error and the previous state is kept.
 - 2026-06 — Built in `core/agentloop`, replacing a re-serialised-global design
   that cost ~27k tokens and a wrong answer on the case this one gets right in
   ~11k.

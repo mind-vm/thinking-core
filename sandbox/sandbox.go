@@ -4,11 +4,14 @@
 package sandbox
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -32,26 +35,27 @@ type LogEntry struct {
 // lives in the threaded `state` (ExecuteTurn) or chat history, never in
 // stray globals.
 type Sandbox struct {
-	runtime      *goja.Runtime
-	logs         []LogEntry
-	helpEntries  map[string]string
-	packs        []Pack
-	execTimeout  time.Duration
-	maxLogBytes  int // 0 = DefaultMaxLogBytes, negative = uncapped
-	onEvent      OnEvent
-	requireCache map[string]goja.Value // cached require() results per session
-	skillCode    map[string]string     // name → JS code, looked up by require()
-	policy       PolicyChecker         // nil = fail-open; see policy.go
-	answered     bool                  // answer() was called during this Execute
-	answerText   string                // the value passed to answer(), stringified
-	corePrompt   string                // replaces defaultCorePrompt when set
-	blocks       []string              // the reply's data blocks, injected as `blocks` next turn
-	userOutput   bool                  // print/done/exit are the user channel; see EnableUserOutput
-	printed      []string              // print() output for the user, across scripts
-	doneCalled   bool                  // done() or exit() was called during this ExecuteTurn
-	doneMessage  string                // the message passed to done() or exit()
-	turnEffects  []string              // file writes and commands this script made; see TurnEffects
-	exitGuard    func() error          // consulted by done()/exit(); see SetExitGuard
+	runtime       *goja.Runtime
+	logs          []LogEntry
+	helpEntries   map[string]string
+	packs         []Pack
+	execTimeout   time.Duration
+	maxLogBytes   int // 0 = DefaultMaxLogBytes, negative = uncapped
+	maxStateBytes int // 0 = DefaultMaxStateBytes, negative = uncapped
+	onEvent       OnEvent
+	requireCache  map[string]goja.Value // cached require() results per session
+	skillCode     map[string]string     // name → JS code, looked up by require()
+	policy        PolicyChecker         // nil = fail-open; see policy.go
+	answered      bool                  // answer() was called during this Execute
+	answerText    string                // the value passed to answer(), stringified
+	corePrompt    string                // replaces defaultCorePrompt when set
+	blocks        []string              // the reply's data blocks, injected as `blocks` next turn
+	userOutput    bool                  // print/done/exit are the user channel; see EnableUserOutput
+	printed       []string              // print() output for the user, across scripts
+	doneCalled    bool                  // done() or exit() was called during this ExecuteTurn
+	doneMessage   string                // the message passed to done() or exit()
+	turnEffects   []string              // file writes and commands this script made; see TurnEffects
+	exitGuard     func() error          // consulted by done()/exit(); see SetExitGuard
 	// console state, scoped to the runtime's lifetime (a turn): counters for
 	// console.count, start times for console.time, and the current group nesting
 	// depth for console.group/groupEnd indentation.
@@ -122,6 +126,17 @@ func (s *Sandbox) SetExecTimeout(d time.Duration) {
 // the few per-turn costs that compounds.
 func (s *Sandbox) SetMaxLogBytes(n int) {
 	s.maxLogBytes = n
+}
+
+// SetMaxStateBytes overrides DefaultMaxStateBytes, the cap on the JSON a
+// turn may leave in `state`. Zero restores the default; negative removes
+// the cap.
+//
+// State never enters the prompt (only logs and a digest do), so this is a
+// memory and persistence bound, not a context one: size it by what the host
+// can afford to hold and store per session, not by the model's window.
+func (s *Sandbox) SetMaxStateBytes(n int) {
+	s.maxStateBytes = n
 }
 
 // snapshotGlobalKeys returns the set of enumerable keys currently on
@@ -429,7 +444,27 @@ func nonNilStrings(v []string) []string {
 // digest the loop derives from ret) is the only thing the model sees back.
 // A script that throws returns nil ret, so the loop keeps the previous
 // state.
+//
+// ExecuteTurn cannot be cancelled except by the exec timeout; use
+// ExecuteTurnContext when the caller has a context.
 func (s *Sandbox) ExecuteTurn(code string, stateJSON json.RawMessage) (logs string, ret json.RawMessage, err error) {
+	return s.ExecuteTurnContext(context.Background(), code, stateJSON)
+}
+
+// ExecuteTurnContext is ExecuteTurn that also stops when ctx ends: the
+// runtime is interrupted, so a CPU-bound script (`while(true){}`) does not
+// outlive a client that went away or a server shutting down, which the exec
+// timeout alone would let run for up to two minutes.
+//
+// When ctx ends the turn, err is ctx.Err() itself (context.Canceled or
+// DeadlineExceeded), not a script error, so a caller can tell "stop" from
+// "the script is wrong". ret is nil, so the previous state is kept. The
+// interrupt is cleared before returning, so a pooled sandbox runs the next
+// turn normally.
+func (s *Sandbox) ExecuteTurnContext(ctx context.Context, code string, stateJSON json.RawMessage) (logs string, ret json.RawMessage, err error) {
+	if cerr := ctx.Err(); cerr != nil {
+		return "", nil, cerr
+	}
 	s.logs = nil
 	s.turnEffects = nil
 	s.answered = false
@@ -452,6 +487,33 @@ func (s *Sandbox) ExecuteTurn(code string, stateJSON json.RawMessage) (logs stri
 		})
 		defer timer.Stop()
 	}
+
+	// The watcher is joined before returning: a goroutine left behind
+	// would call Interrupt on a runtime the next (pooled) turn is already
+	// using, killing a script that was never cancelled.
+	var ctxInterrupted atomic.Bool
+	stopWatch, watchDone := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(watchDone)
+		select {
+		case <-ctx.Done():
+			ctxInterrupted.Store(true)
+			s.runtime.Interrupt(ctx.Err())
+		case <-stopWatch:
+		}
+	}()
+	defer func() {
+		close(stopWatch)
+		<-watchDone
+		if ctxInterrupted.Load() {
+			s.runtime.ClearInterrupt()
+			// Even a script that caught nothing and returned normally
+			// belongs to a turn the caller has abandoned.
+			if err == nil || errors.As(err, new(*goja.InterruptedError)) {
+				logs, ret, err = s.joinedLogs(), nil, ctx.Err()
+			}
+		}
+	}()
 
 	// Inject `state` (what the previous script left there). Hydrate via
 	// JSON.parse for an ES5.1-safe round-trip; an empty/invalid blob
@@ -479,6 +541,11 @@ func (s *Sandbox) ExecuteTurn(code string, stateJSON json.RawMessage) (logs stri
 	_, runErr := s.runtime.RunString("(function(){\n" + code + "\n})()")
 	if runErr != nil {
 		s.runtime.ClearInterrupt()
+		if ctxInterrupted.Load() {
+			// Not a script error: do not emit one, and let the deferred
+			// join above turn this into ctx.Err().
+			return s.joinedLogs(), nil, runErr
+		}
 		s.Emit(Event{Kind: EventError, Summary: "script error", Detail: runErr.Error()})
 		return s.joinedLogs(), nil, runErr
 	}
@@ -515,8 +582,25 @@ func (s *Sandbox) saveState() (json.RawMessage, error) {
 	if goja.IsUndefined(out) || out.String() == "null" {
 		return nil, nil
 	}
-	return json.RawMessage(out.String()), nil
+	encoded := out.String()
+	limit := s.maxStateBytes
+	if limit == 0 {
+		limit = DefaultMaxStateBytes
+	}
+	// The loop holds this in memory and persists it every turn, and a script
+	// can grow it without bound; refusing here keeps the previous state and
+	// tells the model what to do, which is cheaper than an OOM.
+	if limit > 0 && len(encoded) > limit {
+		return nil, fmt.Errorf("state is %d bytes, over the %d byte limit; keep less in state "+
+			"(aggregate, or drop raw rows once you have derived what you need) and run again",
+			len(encoded), limit)
+	}
+	return json.RawMessage(encoded), nil
 }
+
+// DefaultMaxStateBytes caps the JSON a turn may leave in `state` when
+// Sandbox.SetMaxStateBytes has not changed it.
+const DefaultMaxStateBytes = 4 << 20
 
 // DefaultMaxLogBytes caps one turn's log() output when
 // Sandbox.SetMaxLogBytes has not lowered it.

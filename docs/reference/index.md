@@ -14,8 +14,8 @@ This is a synchronous, single-process design, not a durable workflow engine:
 |---|---|
 | No durable execution | A `Run` call lives in one goroutine; a process restart mid-run kills it (steps already persisted are fine, but nothing resumes automatically) |
 | Everything inside a turn is synchronous | Including I/O — no `Promise`/`async`/`.then()` in the sandbox (goja parses them but has no event loop, so continuations silently never run; the system prompt warns the model off this) |
-| Process-level isolation only | goja is memory-safe and interruptible, but sandboxes share the host process's heap/CPU — no per-run resource quota |
-| Unbounded args carry | Nothing caps the size of the server-side state threaded between turns (`RunResult.DataBytesCarried` gives you the observability to notice, not a limit) |
+| Process-level isolation only | goja is memory-safe and interruptible — the exec timeout and a cancelled `Run` context both interrupt a running script — but sandboxes share the host process's heap/CPU, with no per-run memory or CPU quota |
+| State carry is bounded by bytes, not by the heap | `Config.MaxStateBytes` (default 4 MiB, negative = unlimited) caps the JSON a turn may leave in `state`; over it, the turn is a script error and the previous state is kept. It does not limit what a script allocates *during* a turn — that is the goja heap, with no quota. `RunResult.DataBytesCarried` reports the size |
 | No built-in **spend** ceiling | `MaxIterations` bounds turns and token usage is tracked, and `Config.ContextBudget` bounds each turn's *prompt* — but nothing caps what a run or a tenant is allowed to spend in total. A chunked compaction of a very long session makes many provider calls, all under the same non-limit |
 | Token counts are estimated, not tokenized | `ContextBudget` sizes the prompt with a bytes/4 heuristic and a deliberately pessimistic reserve. Supply `ContextBudget.Estimate` for a real tokenizer; without one, the budget is a safe approximation rather than an exact fit |
 
