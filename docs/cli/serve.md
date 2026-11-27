@@ -59,6 +59,7 @@ against the config file's directory.
 | `store` | SQLite file for sessions and steps (`agentloopsql`). Default `thinking-core.db`. |
 | `tokenEnv` | Env var holding the bearer token. Default `THINKING_CORE_TOKEN`. |
 | `maxIterations` | LLM round-trips per run; 0 is the engine default (same as `--max-steps`). |
+| `approval` | `"ask"` (default) or `"deny"`; see "Backends without a human" below. |
 | `policy` | The fields of `sandbox.DefaultPolicy`: `allowTools`, `urlAllowPrefixes`, `allowCommands`, `allowPrivateNetworks`. |
 | `openapi[]` | One skill per entry: `spec` (OpenAPI 3 file), optional `name`, `description`, `baseURL`, `methods`, and `headersEnv` (header name to env var name). The agent calls it with `require("crm")`. |
 | `workspace` | `null` (no filesystem) or `{"root": "dir"}` for `readFile`/`writeFile`/`grep`… confined to that directory. |
@@ -74,12 +75,34 @@ one tenant.
 **Questions the agent asks.** `ask()`, and the approval a fetch to a new
 domain or a workspace write would need on a terminal, become `input_request`
 events. Answer them over the API, or narrow `policy` so they are never raised.
+With no human attached, set `approval` to `"deny"` instead.
+
+**Backends without a human.** With `"approval": "ask"` a side effect the policy
+denies (a non-read-only MCP tool, `writeFile`, `exec`, a fetch to an unlisted
+domain) waits on an `input_request` for up to four minutes. A backend that will
+never answer wants `"approval": "deny"`, in the config or on one request
+(`POST /v1/runs` `{"approval": "deny"}`):
+
+- A denied call fails at once with the policy's own refusal, as an ordinary
+  JavaScript error the script can `catch` and the model reads on its next turn.
+  No `input_request` is emitted for permission prompts. Each refusal is also
+  visible to the backend as a `sandbox_event` in the stream (the same event the
+  policy denial emits with "ask"), so the run's events show what was refused.
+- `ask()` stays defined but throws at once: "no user is available to answer in
+  this run ... proceed with your best judgement, or finish with answer() using
+  what you have". The model is told not to retry the question.
+- A request can tighten the server's setting, never loosen it: `"deny"` on an
+  `"ask"` server applies to that run only; `"ask"` on a `"deny"` server is a
+  `400`. Any other value is a `400`, in the config as at startup.
+- `policy` still decides what is allowed without asking. `deny` only removes
+  the question, so grant what the backend needs with `allowTools`,
+  `urlAllowPrefixes` or `allowCommands`.
 
 ## API
 
 | Request | Result |
 | --- | --- |
-| `POST /v1/runs` `{"message", "sessionId"?, "context"?}` | `202 {"runId","sessionId"}`. The run proceeds in the background. `sessionId` must be a UUID; omit it to start a session, send it back to continue one. A session runs one thing at a time (`409` otherwise). |
+| `POST /v1/runs` `{"message", "sessionId"?, "context"?, "approval"?}` | `202 {"runId","sessionId"}`. The run proceeds in the background. `sessionId` must be a UUID; omit it to start a session, send it back to continue one. A session runs one thing at a time (`409` otherwise). |
 | `POST /v1/runs?wait=true` | Blocks, then `200` with the same body as `GET /v1/runs/{id}`. A failed run is still `200` with `"status":"error"`. |
 | `GET /v1/runs/{id}/events` | Server-Sent Events: every event from the start of the run, then live, ending with exactly one `done`. |
 | `GET /v1/runs/{id}` | `{"runId","sessionId","status","answer","error","summary"}`; `status` is `running`, `completed`, `max_iterations`, `canceled` or `error`. |
