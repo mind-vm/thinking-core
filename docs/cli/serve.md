@@ -134,3 +134,52 @@ def ask_agent(message, session_id=None):
                     break
     return requests.get(f"{BASE}/v1/runs/{run['runId']}", headers=H).json()
 ```
+
+## Running in a container
+
+The repository's `Dockerfile` builds the service as a small image, so a backend
+in any language can run it as a sidecar. It contains the `ext/mcp` build of
+`agentloop`, so the `mcp` config section works too.
+
+```sh
+docker build -t thinking-core .                   # distroless, no shell (default)
+docker build --target alpine -t thinking-core:alpine .   # with a shell
+```
+
+The image runs as a non-root user (uid 65532), listens on 8080, keeps the
+SQLite store in the `/data` volume, and starts with
+`agentloop serve --config /etc/thinking-core/config.json`. Mount your config
+there; relative paths in it (such as an OpenAPI `spec`) resolve against
+`/etc/thinking-core/`, so mount those files next to it.
+
+Inside a container the service must listen on `0.0.0.0`, and `serve` refuses
+to do that without a bearer token, so the token is required, not optional:
+
+```json
+{ "listen": "0.0.0.0:8080", "store": "/data/thinking-core.db", "tokenEnv": "THINKING_CORE_TOKEN" }
+```
+
+```sh
+docker run --rm -p 127.0.0.1:8080:8080 \
+  -e THINKING_CORE_TOKEN -e OPENAI_API_KEY \
+  -v "$PWD/config.json:/etc/thinking-core/config.json:ro" \
+  -v thinking-core-data:/data \
+  thinking-core
+```
+
+`examples/serve/` has a complete config, a demo OpenAPI spec, and a
+`compose.yaml` with the service next to a placeholder backend; the token and
+LLM key come from an `.env` file that is not committed.
+
+**MCP stdio servers** are separate programs the image does not contain. They
+need their runtime, so use the `alpine` target as the base and add it:
+
+```dockerfile
+FROM thinking-core:alpine
+USER root
+RUN apk add --no-cache nodejs npm
+USER 65532
+```
+
+An MCP server reached over HTTP needs nothing extra, and the default image is
+enough. Images are not published anywhere yet; build your own.

@@ -1,0 +1,30 @@
+# thinking-core as a sidecar next to your backend.
+#
+#   cp example.env .env     # then fill in the values; .env is never committed
+#   docker compose up
+#   curl -s -H "Authorization: Bearer $THINKING_CORE_TOKEN" \
+#        -d '{"message":"What is the status of order 42?"}' \
+#        'localhost:8080/v1/runs?wait=true'
+services:
+  backend:
+    # Placeholder: replace with your own service. The agent reaches it as
+    # http://backend (see urlAllowPrefixes and the openapi baseURL in config.json).
+    image: nginx:alpine
+
+  thinking-core:
+    # Built from the repo root; swap for a published image when there is one.
+    build:
+      context: ../..
+      # target: alpine   # when you add stdio MCP servers
+    env_file: .env       # THINKING_CORE_TOKEN, OPENAI_API_KEY (+ OPENAI_BASE_URL, OPENAI_CHAT_MODEL)
+    volumes:
+      - ./config.json:/etc/thinking-core/config.json:ro
+      - ./orders.yaml:/etc/thinking-core/orders.yaml:ro
+      - thinking-core-data:/data
+    ports:
+      # Loopback only on the host; other containers use thinking-core:8080.
+      - "127.0.0.1:8080:8080"
+    depends_on: [backend]
+
+volumes:
+  thinking-core-data:
