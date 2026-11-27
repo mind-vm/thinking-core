@@ -24,19 +24,18 @@ func main() {
 	os.Exit(cli.Main(os.Args[1:], cli.Hooks{OpenMCP: open}))
 }
 
-// open dials one --mcp server. A stdio server inherits only the baseline
-// environment: --mcp has no way to name variables to pass through, which
-// keeps the flag honest — a server that needs a secret is configured
-// through the library API, where that is a deliberate act.
+// open dials one MCP server. A stdio server inherits only the baseline
+// environment plus the variables its spec names: the --mcp flag names none,
+// which keeps the flag honest, while `serve`'s config file can list them.
 func open(ctx context.Context, spec cli.MCPSpec) (ext.MCPSession, io.Closer, error) {
 	var (
 		s   *mcp.Session
 		err error
 	)
 	if spec.URL != "" {
-		s, err = mcp.ConnectHTTP(ctx, mcp.HTTPConfig{URL: spec.URL})
+		s, err = mcp.ConnectHTTP(ctx, mcp.HTTPConfig{URL: spec.URL, Headers: spec.Headers})
 	} else {
-		s, err = mcp.ConnectStdio(ctx, mcp.StdioConfig{Command: spec.Command[0], Args: spec.Command[1:], Stderr: os.Stderr})
+		s, err = mcp.ConnectStdio(ctx, mcp.StdioConfig{Command: spec.Command[0], Args: spec.Command[1:], Env: spec.Env, Stderr: os.Stderr})
 	}
 	if err != nil {
 		return nil, nil, err
