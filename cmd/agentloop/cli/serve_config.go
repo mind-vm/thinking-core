@@ -42,6 +42,11 @@ type serveConfig struct {
 
 	Policy serveConfigPolicy `json:"policy"`
 
+	// Approval is what happens when the policy denies a side effect: "ask"
+	// (default) raises an input_request for the caller to answer, "deny"
+	// refuses at once, for backends with no human attached.
+	Approval string `json:"approval"`
+
 	// OpenAPI turns each entry into a require()-able skill.
 	OpenAPI []serveConfigOpenAPI `json:"openapi"`
 
@@ -163,6 +168,14 @@ func (c *serveConfig) resolve(baseDir string) error {
 		c.TokenEnv = defaultServeTokenEnv
 	}
 	c.Store = relTo(baseDir, c.Store)
+	mode, err := parseServeApproval(c.Approval)
+	if err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
+	if mode == "" {
+		mode = "ask"
+	}
+	c.Approval = mode
 	if c.MaxIterations < 0 {
 		return errors.New("config: maxIterations cannot be negative")
 	}

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
@@ -79,7 +80,8 @@ func cmdServe(argv []string) int {
 	defer store.Close()
 
 	broker := agentrun.NewBroker()
-	caps, closeCaps, err := serveCapabilities(cfg, client, o.model, broker, os.Getenv)
+	approval := newServeApproval(cfg.Approval)
+	caps, closeCaps, err := serveCapabilities(cfg, client, o.model, broker, approval, os.Getenv)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "agentloop serve: %s\n", err)
 		return exitUsage
@@ -93,7 +95,7 @@ func cmdServe(argv []string) int {
 
 	ctx, stop := signalContext()
 	defer stop()
-	srv := newServeServer(serveDeps{loop: agentloop.New(loopCfg), store: store, broker: broker, token: token, ctx: ctx})
+	srv := newServeServer(serveDeps{loop: agentloop.New(loopCfg), store: store, broker: broker, token: token, approval: approval, ctx: ctx})
 
 	ln, err := net.Listen("tcp", cfg.Listen)
 	if err != nil {
@@ -152,12 +154,21 @@ func (p serveConfigPolicy) policy() sandbox.PolicyChecker {
 // terminal, so fetch's domain approval, the workspace's and exec's go through
 // the broker like ask() does — as an `input_request` event the caller answers
 // on POST /v1/runs/{id}/answer. A backend that does not want to be asked
-// narrows the policy instead.
-func serveCapabilities(cfg *serveConfig, client llm.Client, model string, broker *agentrun.Broker, getenv func(string) string) (caps []agentloop.Capability, closeFn func(), err error) {
+// narrows the policy instead, or runs with approval "deny" (see serveApproval).
+func serveCapabilities(cfg *serveConfig, client llm.Client, model string, broker *agentrun.Broker, approval *serveApproval, getenv func(string) string) (caps []agentloop.Capability, closeFn func(), err error) {
 	closeFn = func() {}
 	// Packs for one run ask on that run's session; the requester is built from
 	// the BuildContext, so each capability closes over the broker, not a session.
+	//
+	// Under approval "deny" the permission packs get a nil Approver, which the
+	// library documents as "no human available": the pack refuses with the
+	// policy's own reason and never emits an input_request. That is where the
+	// CLI's `--approve deny` ends up too (a declined prompt), reused rather
+	// than a second notion of declining.
 	requester := func(bc agentloop.BuildContext) (sandbox.InputRequester, error) {
+		if approval.denies(bc.SessionID) {
+			return nil, nil
+		}
 		sid, err := uuid.Parse(bc.SessionID)
 		if err != nil {
 			return nil, fmt.Errorf("session id %q is not a uuid", bc.SessionID)
@@ -187,6 +198,12 @@ func serveCapabilities(cfg *serveConfig, client llm.Client, model string, broker
 			Name:        "ask",
 			Description: "ask the caller a question and wait for the answer",
 			Build: func(bc agentloop.BuildContext) ([]sandbox.Pack, error) {
+				// ask() stays defined under "deny" so a script written for an
+				// interactive host parses; it throws at once instead of
+				// blocking, with advice the model can act on.
+				if approval.denies(bc.SessionID) {
+					return []sandbox.Pack{sandbox.InputPack(noUserAsker{})}, nil
+				}
 				req, err := requester(bc)
 				if err != nil {
 					return nil, err
@@ -336,4 +353,66 @@ func openAPIPack(oa serveConfigOpenAPI, getenv func(string) string) (sandbox.Pac
 		return sandbox.Pack{}, fmt.Errorf("openapi %s: %w", oa.Spec, err)
 	}
 	return pack, nil
+}
+
+// noUserAsker answers every ask() with an error, immediately. The text is what
+// the model reads, so it says what to do instead: waiting is not an option and
+// retrying the question would just burn another turn.
+type noUserAsker struct{}
+
+func (noUserAsker) Request(sandbox.InputRequestData) (any, error) {
+	return nil, errors.New("no user is available to answer in this run, so do not ask again: proceed with your best judgement, or finish with answer() using what you have and say what you assumed")
+}
+
+// serveApproval decides, per run, whether permission and ask() prompts may
+// reach a human. The server default comes from the config; a request can
+// tighten it to "deny" but never loosen it, because the operator's choice is
+// the ceiling a backend cannot raise.
+//
+// It is keyed by session id because that is all a Capability's BuildContext
+// carries, and a session has at most one live run (startRun enforces it).
+type serveApproval struct {
+	deny bool
+
+	mu       sync.Mutex
+	sessions map[string]bool // live runs that asked for deny
+}
+
+func newServeApproval(mode string) *serveApproval {
+	return &serveApproval{deny: mode == "deny", sessions: map[string]bool{}}
+}
+
+// denies reports whether prompts are off for the run on sessionID. Nil-safe so
+// a caller that never configures approval keeps today's asking behaviour.
+func (a *serveApproval) denies(sessionID string) bool {
+	if a == nil {
+		return false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.deny || a.sessions[sessionID]
+}
+
+// begin registers a run's request-level choice and returns its release.
+func (a *serveApproval) begin(sessionID string, deny bool) func() {
+	if a == nil || !deny {
+		return func() {}
+	}
+	a.mu.Lock()
+	a.sessions[sessionID] = true
+	a.mu.Unlock()
+	return func() {
+		a.mu.Lock()
+		delete(a.sessions, sessionID)
+		a.mu.Unlock()
+	}
+}
+
+// parseServeApproval validates the config and request spelling; "" is unset.
+func parseServeApproval(v string) (string, error) {
+	switch v {
+	case "", "ask", "deny":
+		return v, nil
+	}
+	return "", fmt.Errorf(`approval must be "ask" or "deny", got %q`, v)
 }

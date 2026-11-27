@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -142,7 +143,8 @@ func newTestServeCfg(t *testing.T, cfg *serveConfig, getenv func(string) string,
 		t.Fatal(err)
 	}
 	broker := agentrun.NewBroker()
-	caps, closeCaps, err := serveCapabilities(cfg, nil, "", broker, getenv)
+	approval := newServeApproval(cfg.Approval)
+	caps, closeCaps, err := serveCapabilities(cfg, nil, "", broker, approval, getenv)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +154,7 @@ func newTestServeCfg(t *testing.T, cfg *serveConfig, getenv func(string) string,
 			LLM: &fakeLLM{resp: resp}, Sessions: store, Steps: store,
 			SandboxBuilder: &agentloop.DefaultSandboxBuilder{Capabilities: caps},
 		}),
-		store: store, broker: broker, token: token, ctx: ctx,
+		store: store, broker: broker, token: token, approval: approval, ctx: ctx,
 	})
 	ts := httptest.NewServer(srv.handler())
 	t.Cleanup(func() {
@@ -501,7 +503,7 @@ func setHooks(t *testing.T, h Hooks) {
 func TestServeMCPRefusedByStockBuild(t *testing.T) {
 	setHooks(t, Hooks{})
 	cfg := &serveConfig{MCP: []serveConfigMCP{{Name: "fake", Command: []string{"x"}}}}
-	_, _, err := serveCapabilities(cfg, nil, "", agentrun.NewBroker(), func(string) string { return "" })
+	_, _, err := serveCapabilities(cfg, nil, "", agentrun.NewBroker(), nil, func(string) string { return "" })
 	if err == nil || !strings.Contains(err.Error(), "MCP SDK") {
 		t.Errorf("err = %v, want a pointer to the ext/mcp binary", err)
 	}
@@ -545,7 +547,140 @@ func TestServeMCPMissingHeaderEnvFailsStartup(t *testing.T) {
 		return nil, nil, nil
 	}})
 	cfg := &serveConfig{MCP: []serveConfigMCP{{Name: "g", URL: "https://x", HeadersEnv: map[string]string{"Authorization": "NOPE"}}}}
-	if _, _, err := serveCapabilities(cfg, nil, "", agentrun.NewBroker(), func(string) string { return "" }); err == nil || !strings.Contains(err.Error(), "$NOPE") {
+	if _, _, err := serveCapabilities(cfg, nil, "", agentrun.NewBroker(), nil, func(string) string { return "" }); err == nil || !strings.Contains(err.Error(), "$NOPE") {
 		t.Errorf("err = %v", err)
 	}
+}
+
+// --- approval -------------------------------------------------------------
+
+const writeAttempt = `try { writeFile("a.txt", "x"); answer("wrote") } catch (e) { answer("caught: " + e.message) }`
+
+func approvalServe(t *testing.T, approval string, resp ...llm.CompletionResponse) (*testServe, string) {
+	t.Helper()
+	dir := t.TempDir()
+	cfg := &serveConfig{Approval: approval, Capabilities: []string{"ask"}, Workspace: &serveConfigWorkspace{Root: dir}}
+	return newTestServeCfg(t, cfg, func(string) string { return "" }, "", resp...), dir
+}
+
+// runWithin starts a run and fails the test if it has not finished in d: the
+// point of "deny" is that nothing waits for a human.
+func runWithin(t *testing.T, ts *testServe, d time.Duration, body map[string]any) (runView, []sseEvent) {
+	t.Helper()
+	start := time.Now()
+	runID, _ := ts.start(t, body)
+	evs := ts.readSSE(t, runID, nil)
+	if el := time.Since(start); el > d {
+		t.Errorf("run took %s, want under %s", el, d)
+	}
+	_, out := ts.do(t, "GET", "/v1/runs/"+runID, "", nil)
+	var v runView
+	_ = json.Unmarshal(out, &v)
+	return v, evs
+}
+
+func TestServeApprovalDenyRefusesWithoutAsking(t *testing.T) {
+	ts, dir := approvalServe(t, "deny", script(writeAttempt))
+	v, evs := runWithin(t, ts, time.Second, map[string]any{"message": "go"})
+	if !strings.HasPrefix(v.Answer, "caught: writeFile") {
+		t.Errorf("answer = %q, want a catchable refusal from writeFile", v.Answer)
+	}
+	if countType(evs, "input_request") != 0 {
+		t.Errorf("deny must not raise an input_request: %v", types(evs))
+	}
+	if _, err := os.Stat(filepath.Join(dir, "a.txt")); err == nil {
+		t.Error("the refused write happened anyway")
+	}
+}
+
+func TestServeApprovalDenyAskThrowsPromptly(t *testing.T) {
+	ts, _ := approvalServe(t, "deny", script(`try { ask({type: "confirm", message: "ok?"}); answer("asked") } catch (e) { answer("caught: " + e.message) }`))
+	v, evs := runWithin(t, ts, time.Second, map[string]any{"message": "go"})
+	if !strings.Contains(v.Answer, "no user is available") || !strings.Contains(v.Answer, "best judgement") {
+		t.Errorf("answer = %q", v.Answer)
+	}
+	if countType(evs, "input_request") != 0 {
+		t.Errorf("events: %v", types(evs))
+	}
+}
+
+func TestServeApprovalRequestDenyOverServerAsk(t *testing.T) {
+	ts, _ := approvalServe(t, "ask", script(writeAttempt), script(writeAttempt))
+	v, evs := runWithin(t, ts, time.Second, map[string]any{"message": "go", "approval": "deny"})
+	if !strings.HasPrefix(v.Answer, "caught: writeFile") || countType(evs, "input_request") != 0 {
+		t.Errorf("answer = %q events %v", v.Answer, types(evs))
+	}
+	// The tightening ends with the run: the next one on the server default
+	// asks again.
+	runID, _ := ts.start(t, map[string]any{"message": "again"})
+	sawAsk := false
+	ts.readSSE(t, runID, func(e sseEvent) {
+		if e.Type != "input_request" {
+			return
+		}
+		sawAsk = true
+		id := e.Data["args"].(map[string]any)["requestId"].(string)
+		ts.do(t, "POST", "/v1/runs/"+runID+"/answer", "", map[string]any{"requestId": id, "value": false})
+	})
+	if !sawAsk {
+		t.Error("a request-level deny leaked into the next run")
+	}
+}
+
+func TestServeApprovalRequestCannotLoosenServerDeny(t *testing.T) {
+	ts, _ := approvalServe(t, "deny")
+	resp, out := ts.do(t, "POST", "/v1/runs", "", map[string]any{"message": "go", "approval": "ask"})
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(out), "loosen") {
+		t.Errorf("got %d %s, want 400", resp.StatusCode, out)
+	}
+}
+
+func TestServeApprovalRejectsUnknownValues(t *testing.T) {
+	ts, _ := approvalServe(t, "")
+	resp, _ := ts.do(t, "POST", "/v1/runs", "", map[string]any{"message": "go", "approval": "auto"})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("request approval=auto = %d, want 400", resp.StatusCode)
+	}
+	if _, err := parseServeConfig(strings.NewReader(`{"approval": "auto"}`), "."); err == nil {
+		t.Error("config approval=auto accepted")
+	}
+}
+
+func TestServeApprovalDefaultStillAsks(t *testing.T) {
+	ts, _ := approvalServe(t, "", script(writeAttempt))
+	runID, _ := ts.start(t, map[string]any{"message": "go"})
+	var asked bool
+	ts.readSSE(t, runID, func(e sseEvent) {
+		if e.Type != "input_request" {
+			return
+		}
+		asked = true
+		id := e.Data["args"].(map[string]any)["requestId"].(string)
+		ts.do(t, "POST", "/v1/runs/"+runID+"/answer", "", map[string]any{"requestId": id, "value": false})
+	})
+	if !asked {
+		t.Error("the default must keep raising input_request for a denied write")
+	}
+}
+
+func TestServeApprovalDenyMCPNonReadOnly(t *testing.T) {
+	setHooks(t, Hooks{OpenMCP: func(context.Context, MCPSpec) (ext.MCPSession, io.Closer, error) {
+		return writeMCPSession{}, closerFunc(func() error { return nil }), nil
+	}})
+	cfg := &serveConfig{Approval: "deny", Capabilities: []string{}, MCP: []serveConfigMCP{{Name: "fake", URL: "https://x/mcp"}}}
+	ts := newTestServeCfg(t, cfg, func(string) string { return "" }, "",
+		script(`try { require("mcp/fake").save({text: "x"}); answer("saved") } catch (e) { answer("caught: " + e.message) }`))
+	v, evs := runWithin(t, ts, time.Second, map[string]any{"message": "go"})
+	if !strings.HasPrefix(v.Answer, "caught: mcp.fake.save") || countType(evs, "input_request") != 0 {
+		t.Errorf("answer = %q events %v", v.Answer, types(evs))
+	}
+}
+
+type writeMCPSession struct{}
+
+func (writeMCPSession) ListTools(context.Context) ([]ext.MCPTool, error) {
+	return []ext.MCPTool{{Name: "save", Description: "save text"}}, nil
+}
+func (writeMCPSession) CallTool(context.Context, string, map[string]any) (ext.MCPResult, error) {
+	return ext.MCPResult{Text: "saved"}, nil
 }

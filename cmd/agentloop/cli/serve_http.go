@@ -59,6 +59,8 @@ type serveDeps struct {
 	store  *agentloopsql.Store
 	broker *agentrun.Broker
 	token  string // empty: no auth (loopback only; the caller checked)
+	// approval is shared with the capabilities, which consult it at Build.
+	approval *serveApproval
 	// ctx is the parent of every run. Cancelling it is how shutdown stops
 	// runs that no request is attached to.
 	ctx context.Context
@@ -252,6 +254,9 @@ type createRunRequest struct {
 	SessionID string `json:"sessionId"`
 	Message   string `json:"message"`
 	Context   string `json:"context"`
+	// Approval may tighten the server's setting to "deny". "ask" is only a
+	// restatement of an "ask" server and is refused on a "deny" one.
+	Approval string `json:"approval"`
 }
 
 func (s *serveServer) createRun(w http.ResponseWriter, r *http.Request) {
@@ -269,6 +274,16 @@ func (s *serveServer) createRun(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "wait must be true or false")
 			return
 		}
+	}
+	if _, err := parseServeApproval(req.Approval); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// Refused rather than ignored: a backend that believes it turned prompts
+	// back on would wait for questions that never come.
+	if req.Approval == "ask" && s.approval.denies("") {
+		writeError(w, http.StatusBadRequest, `approval "ask" would loosen this server's approval "deny"; a request can only tighten it`)
+		return
 	}
 	// The broker keys prompts by uuid, so a session id has to be one. Saying so
 	// here beats a run that starts and then cannot ask a question.
@@ -312,6 +327,10 @@ func (s *serveServer) startRun(req createRunRequest) (*serveRun, error) {
 	s.runs[run.id] = run
 	s.bySessID[run.sessionID] = run
 	s.mu.Unlock()
+	// Registered before the goroutine for the broker's reason: the first
+	// script's Build must already see it. Released when the run ends so a
+	// later run of the same session does not inherit it.
+	releaseApproval := s.approval.begin(run.sessionID, req.Approval == "deny")
 
 	sid := uuid.MustParse(run.sessionID)
 	// end is called from two places — the goroutine below and the shutdown
@@ -343,6 +362,7 @@ func (s *serveServer) startRun(req createRunRequest) (*serveRun, error) {
 		// immediately sends the next message for this session must not meet
 		// a 409 for a run that has finished.
 		end()
+		releaseApproval()
 		s.mu.Lock()
 		delete(s.bySessID, run.sessionID)
 		s.mu.Unlock()
