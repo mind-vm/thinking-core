@@ -3,8 +3,8 @@
 // letting the model act (see package reliability), on cheap models.
 //
 //	export EDENAI_API_KEY=... EDENAI_BASE_URL=https://api.eu.edenai.run/v3/
-//	go run ./cmd/reliability run -reps 10 -budget 5 -out results/01/results.jsonl
-//	go run ./cmd/reliability report -in results/01/results.jsonl
+//	go run ./bench/cmd/reliability run -reps 10 -budget 5
+//	go run ./bench/cmd/reliability report
 //
 // run resumes: runs already in -out are skipped, so an interrupted or
 // budget-capped run continues where it stopped.
@@ -56,7 +56,7 @@ func usage() {
 
 func run(args []string) {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
-	out := fs.String("out", "results/01/results.jsonl", "results file; runs already in it are skipped")
+	out := fs.String("out", "bench/reliability/results/01/results.jsonl", "results file; runs already in it are skipped")
 	reps := fs.Int("reps", 10, "repetitions of every arm × model × task")
 	budget := fs.Float64("budget", 5, "stop starting runs once this many USD are spent (0: no cap)")
 	parallel := fs.Int("parallel", 12, "runs at once")
@@ -98,7 +98,7 @@ func run(args []string) {
 
 func report(args []string) {
 	fs := flag.NewFlagSet("report", flag.ExitOnError)
-	in := fs.String("in", "results/01/results.jsonl", "results file")
+	in := fs.String("in", "bench/reliability/results/01/results.jsonl", "results file")
 	_ = fs.Parse(args)
 	rs, err := reliability.ReadResults(*in)
 	if err != nil {

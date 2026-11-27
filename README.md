@@ -109,6 +109,11 @@ is kept verbatim) and large data never appears in the context window twice.
 - **`evalmem`** — in-memory `eval.Store` for local dev and CI, same
   role `agentloopmem` plays for `SessionStore`/`StepStore`. Not for
   production traffic.
+- **`bench`** — a reproducible comparison of code-as-action against
+  plain native tool calling on retrieve → join → compute tasks: both
+  agents over the same seeded fixture backends, answers checked exactly
+  (no judge), tokens, turns and accuracy per model. `go run
+  ./bench/cmd/bench`; see [bench/README.md](bench/README.md).
 - **`redact`** — `Redactor`, a small ordered (value, placeholder) list
   that strips known secret values out of text or bytes; a nil
   `*Redactor` is a safe pass-through everywhere. `Config.Redactor` and
@@ -217,6 +222,11 @@ explicit `--history-window` overrides the derived one.
 ```sh
 agentloop --context-window 8192 --timeout 30m "..."
 ```
+
+`agentloop serve --config <file>` runs the engine as an HTTP service for
+backends in other languages: `POST /v1/runs` starts a run, `GET
+/v1/runs/{id}/events` streams it as Server-Sent Events, and capabilities come
+from a JSON file rather than Go code. See [docs/cli/serve.md](docs/cli/serve.md). A `Dockerfile` runs it as a sidecar container ([docs](docs/cli/serve.md#running-in-a-container)).
 
 `agentloop doctor` reports the resolved endpoint and model, makes one
 real request to confirm the endpoint answers (`--offline` skips it), and
@@ -768,11 +778,14 @@ engine:
   no event loop, so continuations silently never run; the system prompt
   warns the model off this).
 - **Process-level isolation only.** goja is memory-safe and
-  interruptible, but sandboxes share the host process's heap/CPU — no
-  per-run resource quota.
-- **Unbounded state carry.** Nothing caps the size of the server-side
-  state threaded between turns (`RunResult.DataBytesCarried` gives you
-  the observability to notice, not a limit).
+  interruptible (the exec timeout and a cancelled `Run` context both
+  interrupt a running script), but sandboxes share the host process's
+  heap/CPU — no per-run memory or CPU quota.
+- **State carry is bounded by bytes, not by the heap.**
+  `Config.MaxStateBytes` (default 4 MiB, negative = unlimited) caps the
+  JSON a turn may leave in `state`; over it the turn is a script error and
+  the previous state is kept. What a script allocates during a turn is
+  not limited.
 - **No built-in cost ceiling.** `MaxIterations` bounds turns and token
   usage is tracked, but there's no per-run or per-tenant token budget.
 

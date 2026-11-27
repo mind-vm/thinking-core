@@ -1,0 +1,26 @@
+openapi: 3.0.3
+info:
+  title: Orders (demo)
+  version: "1"
+servers:
+  - url: http://backend
+paths:
+  /orders/{id}:
+    get:
+      operationId: getOrder
+      summary: Fetch one order
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: The order
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  status: { type: string }

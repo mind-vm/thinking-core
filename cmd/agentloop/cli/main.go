@@ -39,6 +39,13 @@ type MCPSpec struct {
 	Name    string
 	Command []string // non-empty for stdio
 	URL     string   // non-empty for HTTP
+
+	// Env names the variables a stdio server may inherit beyond the
+	// baseline, and Headers are the request headers for an HTTP one, already
+	// resolved to values. Both are only ever set by `serve`'s config file:
+	// a one-line --mcp flag has no honest way to carry a secret.
+	Env     []string
+	Headers map[string]string
 }
 
 // Hooks is what a binary plugs into the command that the root module
@@ -78,6 +85,7 @@ var subcommands = map[string]func([]string) int{
 	"chat":     cmdChat,
 	"sessions": cmdSessions,
 	"doctor":   cmdDoctor,
+	"serve":    cmdServe,
 }
 
 // Main runs the command with argv (without the program name) and returns
@@ -139,6 +147,7 @@ USAGE
   agentloop sessions show <id>    print a session's trace
   agentloop sessions rm <id>...   delete stored sessions
   agentloop sessions revoke <id>  forget a session's approvals
+  agentloop serve --config <file> run as an HTTP/SSE service (docs/cli/serve.md)
   agentloop doctor [flags]        check the environment and workspace
   agentloop version               print version information
   agentloop help                  print this message

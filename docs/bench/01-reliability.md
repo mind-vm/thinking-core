@@ -1,8 +1,8 @@
 # Step 1 — how reliable is each way of acting?
 
-Measured 2026-11-27 with [`bench/`](../../bench/README.md): 3,600 runs, six
+Measured 2026-11-27 with [`bench/reliability`](../../bench/reliability/README.md): 3,600 runs, six
 arms × six models × ten tasks × ten repetitions, $2.01 in all. Raw results:
-[`bench/results/01/results.jsonl`](../../bench/results/01/results.jsonl).
+[`bench/reliability/results/01/results.jsonl`](../../bench/reliability/results/01/results.jsonl).
 
 ## Verdict
 
@@ -39,11 +39,12 @@ large data, a complex API) is where the size of the gap should show.
 
 | | |
 |---|---|
-| Arms | A-script, B-main, C-state, D-data, E-tools, L-loop ([bench/README.md](../../bench/README.md#the-arms)) |
+| Arms | A-script, B-main, C-state, D-data, E-tools, L-loop ([the arms](../../bench/reliability/README.md#the-arms)) |
 | Models | DeepSeek V4.1 Flash, GLM-5.3 Flash, Qwen3.6-35B-A3B, gpt-oss-20b, Devstral Small, Gemini 3.5 Flash-Lite — Eden AI EU endpoint, zero data retention |
-| Tasks | ten, each probing one property ([bench/README.md](../../bench/README.md#the-tasks)) |
+| Tasks | ten, each probing one property ([the tasks](../../bench/reliability/README.md#the-tasks)) |
 | Limits | 8 model calls per message, 4 minutes per run, 4,096 completion tokens per call |
 | Checks | code against answers computed from the same data; gateway errors and hung hosts (no reply in 4 minutes) repeated, 45 runs |
+| Library | agentloop and sandbox at `8b542be`; main has since bounded carried state (4 MB, far above anything here) and honours context cancellation in scripts |
 
 gpt-oss-120b and MiniMax were planned but are not offered with zero data
 retention in the EU; gpt-oss-20b and Devstral Small took their places.
@@ -169,6 +170,7 @@ time: none of these models has trouble with the protocol itself.
 
 ## Next
 
-Step 2, the SaaS benchmark: CRM, billing, support and usage services behind
-one OpenAPI spec of about 35 operations, three tenant sizes, twelve tasks —
-where the token gap seen on 04-carry should become a pass-rate gap.
+Step 2 is the larger test: [`bench/`](../../bench/README.md), retrieve →
+join → compute over an in-memory CRM, billing and usage with paging, the
+library against plain tool calling — where the token gap seen on 04-carry
+should become a pass-rate gap.
