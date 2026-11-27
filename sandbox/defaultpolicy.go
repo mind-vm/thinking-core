@@ -55,7 +55,9 @@ var sideEffectTools = map[string]bool{
 // A caller that truly wants fail-open passes AllowAll.
 type DefaultPolicy struct {
 	// AllowTools grants side-effecting tool names ("sendEmail",
-	// "secret"). Empty means all of them are denied.
+	// "secret"). Empty means all of them are denied. An MCP tool is
+	// "mcp.<server>.<tool>"; "mcp.<server>.*" grants every tool of one
+	// server.
 	AllowTools []string
 
 	// URLAllowPrefixes is the outbound allowlist for fetch/http and for
@@ -95,10 +97,45 @@ func (p DefaultPolicy) Check(_ context.Context, toolName string, args map[string
 			return PolicyCheckResult{Allowed: true}, nil
 		}
 	}
+	if strings.HasPrefix(toolName, "mcp.") {
+		return p.checkMCP(toolName, args), nil
+	}
 	if sideEffectTools[toolName] && !slices.Contains(p.AllowTools, toolName) {
 		return PolicyCheckResult{Allowed: false, Reason: p.refusal(toolName, args)}, nil
 	}
 	return PolicyCheckResult{Allowed: true}, nil
+}
+
+// checkMCP decides one MCP tool call, named "mcp.<server>.<tool>".
+//
+// MCP tools are not in sideEffectTools because the set is open: the names
+// come from whatever server was connected. The rule is inverted instead —
+// a tool is a side effect unless the server's own readOnlyHint says it is
+// not, the same reasoning as workspace reads: a read confined to what the
+// user pointed the agent at is not worth a prompt each. The hint is the
+// pack's to supply (ext.MCPPack passes it as args["readOnly"]); a caller
+// that does not trust a server sets MCPConfig.IgnoreReadOnlyHint, which
+// makes every tool of it a side effect here.
+//
+// AllowTools grants a tool by exact name, or a whole server with
+// "mcp.<server>.*". The wildcard is for MCP names only — it is not a
+// general glob, so "*" or "exec.*" in AllowTools still means nothing.
+func (p DefaultPolicy) checkMCP(toolName string, args map[string]any) PolicyCheckResult {
+	if ro, _ := args["readOnly"].(bool); ro {
+		return PolicyCheckResult{Allowed: true}
+	}
+	for _, grant := range p.AllowTools {
+		if grant == toolName {
+			return PolicyCheckResult{Allowed: true}
+		}
+		if prefix, ok := strings.CutSuffix(grant, "*"); ok && strings.HasPrefix(prefix, "mcp.") && prefix != "mcp." &&
+			strings.HasSuffix(prefix, ".") && strings.HasPrefix(toolName, prefix) {
+			return PolicyCheckResult{Allowed: true}
+		}
+	}
+	return PolicyCheckResult{Allowed: false, Reason: toolName +
+		" is not permitted in this run, so the tool was not called. " +
+		"Use the read-only tools and the other functions, and say plainly what you could not do."}
 }
 
 // refusal is the Reason for a denied tool. It is read by the model, not

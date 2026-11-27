@@ -5,3 +5,4 @@
 .env
 .DS_Store
 /cmd/agentloop/agentloop
+/ext/mcp/cmd/agentloop/agentloop

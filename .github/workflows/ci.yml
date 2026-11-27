@@ -82,6 +82,35 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
         run: go build ./...
 
+  # ext/mcp is a module of its own so the MCP SDK stays out of the core's
+  # go.mod, which means `go test ./...` at the root never reaches it. It
+  # replaces the core with ../.., so this is also where a change to
+  # ext.MCPPack or the cli package shows up as a broken client or binary.
+  mcp:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ext/mcp
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: ext/mcp/go.mod
+          cache: true
+          cache-dependency-path: ext/mcp/go.sum
+      - name: Formatting
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt'd:"
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test -race ./...
+
   # examples/blocks-tabler is a module of its own — templ and tabler-templ
   # stay out of the core's go.mod — so `go test ./...` at the root never
   # reaches it. It replaces the core with ../.., which makes it the one place

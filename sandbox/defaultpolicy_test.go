@@ -283,3 +283,44 @@ func TestRefusalsAreAddressedToTheModel(t *testing.T) {
 		}
 	}
 }
+
+// --- MCP tools --------------------------------------------------------
+
+// An MCP tool is a side effect unless the server's hint says read-only,
+// and a grant is either the exact name or the whole server.
+func TestMCPToolsAreSideEffectsUnlessReadOnly(t *testing.T) {
+	var p DefaultPolicy
+	if res := check(t, p, "mcp.gh.search", map[string]any{"readOnly": true}); !res.Allowed {
+		t.Errorf("a read-only MCP tool should pass, got %q", res.Reason)
+	}
+	for _, args := range []map[string]any{nil, {"readOnly": false}, {"readOnly": "true"}} {
+		res := check(t, p, "mcp.gh.create_issue", args)
+		if res.Allowed || res.Reason == "" {
+			t.Errorf("args %v: want a denial with a reason, got %+v", args, res)
+		}
+	}
+}
+
+func TestMCPGrants(t *testing.T) {
+	cases := []struct {
+		grants []string
+		tool   string
+		want   bool
+	}{
+		{[]string{"mcp.gh.create_issue"}, "mcp.gh.create_issue", true},
+		{[]string{"mcp.gh.create_issue"}, "mcp.gh.delete_repo", false},
+		{[]string{"mcp.gh.*"}, "mcp.gh.delete_repo", true},
+		{[]string{"mcp.gh.*"}, "mcp.ghost.x", false},
+		{[]string{"mcp.gh.*"}, "mcp.other.x", false},
+		{[]string{"mcp.*"}, "mcp.gh.x", false},
+		{[]string{"*"}, "mcp.gh.x", false},
+		{[]string{"mcp.gh.*"}, "exec", false},
+		{[]string{"mcp.gh.*"}, "mcp.gh.a.b", true}, // a tool name may itself contain dots
+	}
+	for _, c := range cases {
+		got := check(t, DefaultPolicy{AllowTools: c.grants}, c.tool, nil).Allowed
+		if got != c.want {
+			t.Errorf("AllowTools %v, %s: allowed=%v, want %v", c.grants, c.tool, got, c.want)
+		}
+	}
+}

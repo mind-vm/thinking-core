@@ -261,6 +261,39 @@ A few things worth knowing before pointing this at a real spec:
   derived name get a numeric suffix (`getPets`, `getPets2`, ...) rather
   than one silently overwriting the other.
 
+## MCP servers as sandbox functions
+
+`ext.MCPPack` makes the tools of an MCP server functions a script can chain,
+instead of one model round-trip per tool call ([ADR-0018](../adr/0018-mcp-tools-as-sandbox-functions.md)).
+It takes a two-method `ext.MCPSession`, so `ext` carries no MCP dependency; the
+client built on the official SDK is the separate module
+`github.com/mind-vm/thinking-core/ext/mcp`:
+
+```go
+sess, err := mcp.ConnectStdio(ctx, mcp.StdioConfig{
+    Command: "npx", Args: []string{"-y", "@modelcontextprotocol/server-filesystem", "/tmp"},
+    Env:     []string{"GITHUB_TOKEN"}, // beyond a small baseline, only what you name
+})
+defer sess.Close()
+// mcp.ConnectHTTP(ctx, mcp.HTTPConfig{URL: ..., Headers: ...}) for a remote one.
+
+pack, err := ext.MCPPack(ctx, "fs", sess, ext.MCPConfig{Approver: requester})
+```
+
+In the sandbox, `require('mcp/fs')` returns one synchronous function per tool,
+camelCased (`read_text_file` is `readTextFile`), taking one arguments object.
+A call returns the tool's structured content, else its text, parsed when it is a
+JSON object or array. A tool that reports `isError` throws an `Error` carrying
+its message. The prompt carries TypeScript declarations generated from each
+tool's input schema; past twelve tools it carries a one-line catalog and
+`skillGet("mcp/fs")` returns the declarations.
+
+Each call is policy-checked as `mcp.<server>.<tool>`. A tool the server marks
+`readOnlyHint` is allowed; any other is denied by `DefaultPolicy` unless
+`AllowTools` names it or `mcp.<server>.*`, and with an `Approver` the user is
+asked once per tool per session. The hint is the server's own word, so set
+`MCPConfig.IgnoreReadOnlyHint` for a server you do not trust.
+
 ## Session-scoped sandbox reuse
 
 `sandbox.New()` builds a whole `goja.Runtime` and re-registers every pack

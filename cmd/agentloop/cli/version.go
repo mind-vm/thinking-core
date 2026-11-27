@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"fmt"
@@ -7,7 +7,7 @@ import (
 )
 
 // version is the release identifier. It is overridden at build time
-// (-ldflags "-X main.version=v0.1.0"); an unstamped build falls back to
+// (-ldflags "-X github.com/mind-vm/thinking-core/cmd/agentloop/cli.version=v0.1.0"); an unstamped build falls back to
 // whatever the module graph and VCS stamps know.
 var version = ""
 
