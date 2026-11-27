@@ -55,10 +55,24 @@ type serveConfig struct {
 	// they describe and are not listed here.
 	Capabilities []string `json:"capabilities"`
 
-	// MCP is where the "mcp": [...] section goes once MCPPack lands: one
-	// entry per server, secrets by env-var name like everything above.
-	// Deliberately absent now — DisallowUnknownFields turns a premature
-	// "mcp" key into a loud error instead of a silently ignored one.
+	// MCP lists MCP servers whose tools become require('mcp/<name>').
+	// Granting their side-effecting tools is policy.allowTools, with
+	// "mcp.<name>.*" or a single "mcp.<name>.<tool>".
+	MCP []serveConfigMCP `json:"mcp"`
+}
+
+// serveConfigMCP is one server: Command (stdio) or URL (streamable HTTP).
+// Secrets follow the file's rule: Env lists variable NAMES the child may
+// inherit, HeadersEnv maps a header to the variable holding its value.
+type serveConfigMCP struct {
+	Name       string            `json:"name"`
+	Command    []string          `json:"command"`
+	Env        []string          `json:"env"`
+	URL        string            `json:"url"`
+	HeadersEnv map[string]string `json:"headersEnv"`
+	// IgnoreReadOnlyHint treats every tool as a side effect, for a server
+	// that is not trusted to label its own tools.
+	IgnoreReadOnlyHint bool `json:"ignoreReadOnlyHint"`
 }
 
 // serveConfigPolicy mirrors sandbox.DefaultPolicy field for field, so the
@@ -172,6 +186,23 @@ func (c *serveConfig) resolve(baseDir string) error {
 	}
 	if slices.Contains(c.Capabilities, "exec") && c.Workspace == nil {
 		return errors.New(`config: capability "exec" runs in the workspace, so a workspace section is required`)
+	}
+
+	mcpSeen := map[string]bool{}
+	for i, m := range c.MCP {
+		switch {
+		case !mcpNameRe.MatchString(m.Name):
+			return fmt.Errorf("config: mcp[%d] name %q may use only letters, digits, '-' and '_'", i, m.Name)
+		case mcpSeen[m.Name]:
+			return fmt.Errorf("config: mcp name %q appears twice", m.Name)
+		case (len(m.Command) == 0) == (m.URL == ""):
+			return fmt.Errorf("config: mcp %q needs exactly one of command (stdio) or url (http)", m.Name)
+		case m.URL != "" && len(m.Env) > 0:
+			return fmt.Errorf("config: mcp %q: env applies to a command, not a url", m.Name)
+		case m.URL == "" && len(m.HeadersEnv) > 0:
+			return fmt.Errorf("config: mcp %q: headersEnv applies to a url, not a command", m.Name)
+		}
+		mcpSeen[m.Name] = true
 	}
 
 	seen := map[string]bool{}

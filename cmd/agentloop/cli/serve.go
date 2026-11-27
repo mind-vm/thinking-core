@@ -2,8 +2,10 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -238,7 +240,74 @@ func serveCapabilities(cfg *serveConfig, client llm.Client, model string, broker
 			Build:       func(agentloop.BuildContext) ([]sandbox.Pack, error) { return []sandbox.Pack{pack}, nil },
 		})
 	}
-	return caps, closeFn, nil
+
+	mcpCaps, closeMCP, err := serveMCP(context.Background(), cfg.MCP, requester, getenv)
+	if err != nil {
+		closeFn()
+		return nil, nil, err
+	}
+	caps = append(caps, mcpCaps...)
+	closeWS := closeFn
+	return caps, func() { closeMCP(); closeWS() }, nil
+}
+
+// serveMCP opens every configured server once, at startup, and returns one
+// capability per server. Opened here rather than in Capability.Build for the
+// reason mcpCapabilities gives: a stdio server is a child process, and one per
+// run would make every run wait on process start. A server that cannot be
+// reached stops the service from coming up rather than failing runs later.
+func serveMCP(ctx context.Context, specs []serveConfigMCP, requester func(agentloop.BuildContext) (sandbox.InputRequester, error), getenv func(string) string) ([]agentloop.Capability, func(), error) {
+	if len(specs) == 0 {
+		return nil, func() {}, nil
+	}
+	if hooks.OpenMCP == nil {
+		return nil, nil, errors.New("config has an mcp section, but this agentloop does not link the MCP SDK (ADR-0018); " +
+			"install github.com/mind-vm/thinking-core/ext/mcp/cmd/agentloop instead")
+	}
+	var caps []agentloop.Capability
+	var closers []io.Closer
+	closeAll := func() {
+		for _, c := range closers {
+			_ = c.Close()
+		}
+	}
+	for _, m := range specs {
+		spec := MCPSpec{Name: m.Name, Command: m.Command, URL: m.URL, Env: m.Env}
+		for header, env := range m.HeadersEnv {
+			v := getenv(env)
+			if v == "" {
+				closeAll()
+				return nil, nil, fmt.Errorf("mcp %s: header %s comes from $%s, which is not set", m.Name, header, env)
+			}
+			if spec.Headers == nil {
+				spec.Headers = map[string]string{}
+			}
+			spec.Headers[header] = v
+		}
+		sess, closer, err := hooks.OpenMCP(ctx, spec)
+		if err != nil {
+			closeAll()
+			return nil, nil, fmt.Errorf("mcp %s: %w", m.Name, err)
+		}
+		closers = append(closers, closer)
+		ignore := m.IgnoreReadOnlyHint
+		caps = append(caps, agentloop.Capability{
+			Name:        "mcp/" + m.Name,
+			Description: "tools of the " + m.Name + " MCP server",
+			Build: func(bc agentloop.BuildContext) ([]sandbox.Pack, error) {
+				req, err := requester(bc)
+				if err != nil {
+					return nil, err
+				}
+				pack, err := ext.MCPPack(bc.Ctx, spec.Name, sess, ext.MCPConfig{Approver: req, IgnoreReadOnlyHint: ignore})
+				if err != nil {
+					return nil, err
+				}
+				return []sandbox.Pack{pack}, nil
+			},
+		})
+	}
+	return caps, closeAll, nil
 }
 
 // openAPIPack loads one spec and resolves its header secrets. Both happen at

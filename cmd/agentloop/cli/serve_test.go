@@ -18,6 +18,7 @@ import (
 	"github.com/mind-vm/thinking-core/agentloop"
 	"github.com/mind-vm/thinking-core/agentloopsql"
 	"github.com/mind-vm/thinking-core/agentrun"
+	"github.com/mind-vm/thinking-core/ext"
 	"github.com/mind-vm/thinking-core/llm"
 )
 
@@ -43,7 +44,6 @@ func TestParseServeConfigRejects(t *testing.T) {
 	for name, in := range map[string]string{
 		"unknown field":       `{"listn": "127.0.0.1:1"}`,
 		"unknown nested":      `{"policy": {"urlAllowPrefix": []}}`,
-		"mcp not yet":         `{"mcp": []}`,
 		"trailing data":       `{} {}`,
 		"bad listen":          `{"listen": "nope"}`,
 		"unknown capability":  `{"capabilities": ["teleport"]}`,
@@ -52,6 +52,13 @@ func TestParseServeConfigRejects(t *testing.T) {
 		"openapi w/o spec":    `{"openapi": [{"name": "x"}]}`,
 		"duplicate openapi":   `{"openapi": [{"name": "x", "spec": "a"}, {"name": "x", "spec": "b"}]}`,
 		"negative iterations": `{"maxIterations": -1}`,
+		"mcp no transport":    `{"mcp": [{"name": "a"}]}`,
+		"mcp both transports": `{"mcp": [{"name": "a", "command": ["x"], "url": "http://h"}]}`,
+		"mcp bad name":        `{"mcp": [{"name": "a.b", "command": ["x"]}]}`,
+		"mcp duplicate":       `{"mcp": [{"name": "a", "command": ["x"]}, {"name": "a", "url": "http://h"}]}`,
+		"mcp env on url":      `{"mcp": [{"name": "a", "url": "http://h", "env": ["X"]}]}`,
+		"mcp headers on cmd":  `{"mcp": [{"name": "a", "command": ["x"], "headersEnv": {"A": "B"}}]}`,
+		"mcp unknown field":   `{"mcp": [{"name": "a", "command": ["x"], "ignoreReadOnly": true}]}`,
 	} {
 		if _, err := parseServeConfig(strings.NewReader(in), "."); err == nil {
 			t.Errorf("%s: accepted %s", name, in)
@@ -118,17 +125,24 @@ type testServe struct {
 	*httptest.Server
 	srv    *serveServer
 	cancel context.CancelFunc
+	// closeCaps is what shutdown runs; idempotent, so the test may call it
+	// early to observe what it releases.
+	closeCaps func()
 }
 
 func newTestServe(t *testing.T, token string, resp ...llm.CompletionResponse) *testServe {
+	t.Helper()
+	return newTestServeCfg(t, &serveConfig{Capabilities: []string{"ask"}}, func(string) string { return "" }, token, resp...)
+}
+
+func newTestServeCfg(t *testing.T, cfg *serveConfig, getenv func(string) string, token string, resp ...llm.CompletionResponse) *testServe {
 	t.Helper()
 	store, err := agentloopsql.Open(filepath.Join(t.TempDir(), "s.db"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	broker := agentrun.NewBroker()
-	cfg := &serveConfig{Capabilities: []string{"ask"}}
-	caps, closeCaps, err := serveCapabilities(cfg, nil, "", broker, func(string) string { return "" })
+	caps, closeCaps, err := serveCapabilities(cfg, nil, "", broker, getenv)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +162,7 @@ func newTestServe(t *testing.T, token string, resp ...llm.CompletionResponse) *t
 		closeCaps()
 		store.Close()
 	})
-	return &testServe{Server: ts, srv: srv, cancel: cancel}
+	return &testServe{Server: ts, srv: srv, cancel: cancel, closeCaps: closeCaps}
 }
 
 func (ts *testServe) do(t *testing.T, method, path, token string, body any) (*http.Response, []byte) {
@@ -446,5 +460,92 @@ func TestServeCancelledRunsEndWithADone(t *testing.T) {
 	}
 	if v := ts.srv.lookup(runID).view(); v.Status != "canceled" {
 		t.Errorf("status = %s", v.Status)
+	}
+}
+
+// --- mcp --------------------------------------------------------------------
+
+func TestParseServeConfigMCP(t *testing.T) {
+	cfg, err := parseServeConfig(strings.NewReader(`{"mcp": [
+		{"name": "fs", "command": ["npx", "-y", "srv"], "env": ["HOME_TOKEN"], "ignoreReadOnlyHint": true},
+		{"name": "gh", "url": "https://x/mcp", "headersEnv": {"Authorization": "GH_AUTH"}}]}`), ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.MCP) != 2 || !cfg.MCP[0].IgnoreReadOnlyHint || cfg.MCP[1].HeadersEnv["Authorization"] != "GH_AUTH" {
+		t.Errorf("mcp = %+v", cfg.MCP)
+	}
+}
+
+type fakeMCPSession struct{}
+
+func (fakeMCPSession) ListTools(context.Context) ([]ext.MCPTool, error) {
+	return []ext.MCPTool{{Name: "echo", Description: "echo text", ReadOnly: true}}, nil
+}
+func (fakeMCPSession) CallTool(_ context.Context, _ string, args map[string]any) (ext.MCPResult, error) {
+	return ext.MCPResult{Text: "echo:" + args["text"].(string)}, nil
+}
+
+type closerFunc func() error
+
+func (f closerFunc) Close() error { return f() }
+
+// setHooks swaps the package-level hooks Main would set.
+func setHooks(t *testing.T, h Hooks) {
+	t.Helper()
+	old := hooks
+	hooks = h
+	t.Cleanup(func() { hooks = old })
+}
+
+func TestServeMCPRefusedByStockBuild(t *testing.T) {
+	setHooks(t, Hooks{})
+	cfg := &serveConfig{MCP: []serveConfigMCP{{Name: "fake", Command: []string{"x"}}}}
+	_, _, err := serveCapabilities(cfg, nil, "", agentrun.NewBroker(), func(string) string { return "" })
+	if err == nil || !strings.Contains(err.Error(), "MCP SDK") {
+		t.Errorf("err = %v, want a pointer to the ext/mcp binary", err)
+	}
+}
+
+func TestServeMCPRunThroughFakeHook(t *testing.T) {
+	var got MCPSpec
+	closed := false
+	setHooks(t, Hooks{OpenMCP: func(_ context.Context, spec MCPSpec) (ext.MCPSession, io.Closer, error) {
+		got = spec
+		return fakeMCPSession{}, closerFunc(func() error { closed = true; return nil }), nil
+	}})
+	cfg := &serveConfig{Capabilities: []string{}, MCP: []serveConfigMCP{{
+		Name: "fake", URL: "https://x/mcp", HeadersEnv: map[string]string{"Authorization": "FAKE_AUTH"},
+	}}}
+	env := func(k string) string {
+		if k == "FAKE_AUTH" {
+			return "Bearer s"
+		}
+		return ""
+	}
+	ts := newTestServeCfg(t, cfg, env, "", script(`answer(require("mcp/fake").echo({text: "hi"}))`))
+	resp, out := ts.do(t, "POST", "/v1/runs?wait=true", "", map[string]any{"message": "go"})
+	var v runView
+	_ = json.Unmarshal(out, &v)
+	if resp.StatusCode != 200 || v.Answer != "echo:hi" {
+		t.Fatalf("run = %d %s", resp.StatusCode, out)
+	}
+	if got.Headers["Authorization"] != "Bearer s" || got.URL != "https://x/mcp" {
+		t.Errorf("spec handed to the hook = %+v", got)
+	}
+	ts.closeCaps()
+	if !closed {
+		t.Error("the MCP session must be closed on shutdown")
+	}
+}
+
+func TestServeMCPMissingHeaderEnvFailsStartup(t *testing.T) {
+	setHooks(t, Hooks{OpenMCP: func(context.Context, MCPSpec) (ext.MCPSession, io.Closer, error) {
+		t.Error("the server must not be opened without its secret")
+		return nil, nil, nil
+	}})
+	cfg := &serveConfig{MCP: []serveConfigMCP{{Name: "g", URL: "https://x", HeadersEnv: map[string]string{"Authorization": "NOPE"}}}}
+	if _, _, err := serveCapabilities(cfg, nil, "", agentrun.NewBroker(), func(string) string { return "" }); err == nil || !strings.Contains(err.Error(), "$NOPE") {
+		t.Errorf("err = %v", err)
 	}
 }

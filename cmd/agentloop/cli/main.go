@@ -39,6 +39,13 @@ type MCPSpec struct {
 	Name    string
 	Command []string // non-empty for stdio
 	URL     string   // non-empty for HTTP
+
+	// Env names the variables a stdio server may inherit beyond the
+	// baseline, and Headers are the request headers for an HTTP one, already
+	// resolved to values. Both are only ever set by `serve`'s config file:
+	// a one-line --mcp flag has no honest way to carry a secret.
+	Env     []string
+	Headers map[string]string
 }
 
 // Hooks is what a binary plugs into the command that the root module
