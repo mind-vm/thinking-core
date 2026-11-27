@@ -3,7 +3,7 @@
 - **Status:** Working
 - **Confidence:** Medium
 - **Decided:** 2026-10-18
-- **Last reviewed:** 2026-10-18
+- **Last reviewed:** 2026-11-27
 - **Consumers:** the library's public API — every prompt the loop composes, and
   `sandbox.Sandbox.ExecuteTurn`.
 
@@ -62,3 +62,4 @@ downstream, because every consumer's scripts and prompts change with it.
 
 - 2026-10-18 — Decided and recorded, replacing the run(args) contract
   described in ADR-0004 and ADR-0005.
+- 2026-11-27 — Measured against `main(state)` (the old contract), a shown `data` object and no carry at all ([bench step 1](../bench/01-reliability.md)): on six cheap models the short prompt holds; `state`, `main` and `data` are equally reliable (95%, p ≥ 0.65), `state` is the cheapest, no carry drops to 89%. Data was lost as a local `const` never put into `state` (4 of 600 runs, 6 under `main`); clobbering `state` was not measured.
