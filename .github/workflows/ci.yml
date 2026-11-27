@@ -111,6 +111,36 @@ jobs:
       - name: Test
         run: go test -race ./...
 
+  # bench is a module of its own, so the root's `go test ./...` never reaches
+  # it. Its tests drive every arm against a scripted fake model, no key
+  # needed; it copies agentloop's shape digest and drives the real loop, so
+  # this is where a change there shows up as a bench that measures something
+  # else.
+  bench:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bench
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: bench/go.mod
+          cache: true
+          cache-dependency-path: bench/go.sum
+      - name: Formatting
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt'd:"
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test -race ./...
+
   # examples/blocks-tabler is a module of its own — templ and tabler-templ
   # stay out of the core's go.mod — so `go test ./...` at the root never
   # reaches it. It replaces the core with ../.., which makes it the one place

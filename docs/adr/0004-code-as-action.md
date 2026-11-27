@@ -3,7 +3,7 @@
 - **Status:** Working
 - **Confidence:** High
 - **Decided:** 2026-03 (in `thinking-core`), reconfirmed 2026-08-21
-- **Last reviewed:** 2026-10-18
+- **Last reviewed:** 2026-11-27
 - **Consumers:** the whole library — every other record here assumes it.
 
 ## Context
@@ -97,3 +97,4 @@ cheaper but forks every context-economy mechanism, which is the worse outcome.
 - 2026-08-28 — Recorded retroactively. Writing it surfaced that the motivating
   reason is obsolete and the surviving justification has one measurement behind
   it, not a comparison.
+- 2026-11-27 — First head-to-head measurement ([bench step 1](../bench/01-reliability.md)): on ten small tasks and six cheap models, code arms pass 95–96% and native tool calls 82% (p < 0.001), at 3.7× the cost per pass; tool calling loses on arithmetic over results and on large results. The decision stands; the larger test (big data, a complex API) is step 2.
