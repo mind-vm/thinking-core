@@ -83,6 +83,15 @@ type Config struct {
 	// default.
 	MaxIterations int
 
+	// MaxStateBytes caps the JSON a script may leave in `state` between
+	// turns. Zero uses sandbox.DefaultMaxStateBytes (4 MiB); negative
+	// removes the cap. A script that exceeds it gets a fixable error and
+	// the previous state is kept, as after a throw.
+	//
+	// Deliberately separate from ContextBudget: state never enters the
+	// prompt, so it is a memory and persistence bound, not a context one.
+	MaxStateBytes int
+
 	// RunTimeout is the wall-clock cap per Run. Zero uses the package
 	// default.
 	RunTimeout time.Duration
@@ -490,6 +499,15 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 	// closed via defer on every exit) can wrap the whole thing. done
 	// means Run should return (res, turnErr) now; done == false means
 	// keep looping — res and turnErr are meaningless in that case.
+	ctxEnded := func() (RunResult, error) {
+		if cause := context.Cause(ctx); errors.Is(cause, ErrRunTimeout) {
+			l.emit(req.OnEvent, RunEvent{Type: "error", Content: cause.Error()})
+			return finalize("error"), cause
+		}
+		l.emit(req.OnEvent, RunEvent{Type: "error", Content: "context cancelled: " + ctx.Err().Error()})
+		return finalize("error"), ctx.Err()
+	}
+
 	runTurn := func(iter int) (res RunResult, turnErr error, done bool) {
 		tctx, turnSpan := l.tracer.Start(ctx, spanTurn, trace.WithAttributes(
 			attribute.Int(attrIteration, iter),
@@ -699,7 +717,18 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 
 		_, jsSpan := l.tracer.Start(tctx, spanExecuteJS)
 		sb.SetBlocks(ExtractDataBlocks(replyText))
-		logs, ret, execErr := sb.ExecuteTurn(jsCode, prevState)
+		// Set per Run, not per sandbox: a pooled sandbox outlives the Loop
+		// that configured it.
+		sb.SetMaxStateBytes(l.cfg.MaxStateBytes)
+		logs, ret, execErr := sb.ExecuteTurnContext(ctx, jsCode, prevState)
+		if execErr != nil && ctx.Err() != nil && errors.Is(execErr, ctx.Err()) {
+			// The Run was cancelled mid-script. That is not a script bug
+			// to feed back to the model: end the Run with the context's
+			// error, so a caller can tell cancellation from failure.
+			jsSpan.End()
+			res, err := ctxEnded()
+			return res, err, true
+		}
 		if execErr != nil {
 			rerr := redactErr(l.cfg.Redactor, execErr)
 			jsSpan.RecordError(rerr)
@@ -832,13 +861,7 @@ func (l *loop) Run(ctx context.Context, req RunRequest) (result RunResult, err e
 
 	for iter := 0; iter < l.cfg.MaxIterations; iter++ {
 		if ctx.Err() != nil {
-			if cause := context.Cause(ctx); errors.Is(cause, ErrRunTimeout) {
-				l.emit(req.OnEvent, RunEvent{Type: "error", Content: cause.Error()})
-				return finalize("error"), cause
-			}
-			l.emit(req.OnEvent, RunEvent{Type: "error", Content: "context cancelled: " + ctx.Err().Error()})
-			res := finalize("error")
-			return res, ctx.Err()
+			return ctxEnded()
 		}
 
 		if res, turnErr, done := runTurn(iter); done {

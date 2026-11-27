@@ -773,11 +773,14 @@ engine:
   no event loop, so continuations silently never run; the system prompt
   warns the model off this).
 - **Process-level isolation only.** goja is memory-safe and
-  interruptible, but sandboxes share the host process's heap/CPU — no
-  per-run resource quota.
-- **Unbounded state carry.** Nothing caps the size of the server-side
-  state threaded between turns (`RunResult.DataBytesCarried` gives you
-  the observability to notice, not a limit).
+  interruptible (the exec timeout and a cancelled `Run` context both
+  interrupt a running script), but sandboxes share the host process's
+  heap/CPU — no per-run memory or CPU quota.
+- **State carry is bounded by bytes, not by the heap.**
+  `Config.MaxStateBytes` (default 4 MiB, negative = unlimited) caps the
+  JSON a turn may leave in `state`; over it the turn is a script error and
+  the previous state is kept. What a script allocates during a turn is
+  not limited.
 - **No built-in cost ceiling.** `MaxIterations` bounds turns and token
   usage is tracked, but there's no per-run or per-tenant token budget.
 
