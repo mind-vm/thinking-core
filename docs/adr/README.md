@@ -135,6 +135,7 @@ it bears on.
 | [0016](0016-mit-and-public.md) | MIT and public | Working | High |
 | [0017](0017-scripts-keep-data-in-state.md) | Scripts keep data in state, not in a run(args) return | Working | Medium |
 | [0018](0018-mcp-tools-as-sandbox-functions.md) | MCP tools as sandbox functions behind an interface; the SDK in its own module | Exploring | Medium |
+| [0019](0019-a-configurable-service-beside-the-library.md) | A configurable service beside the library — JSON config, secrets by env name | Exploring | Medium |
 
 ## Lineage
 

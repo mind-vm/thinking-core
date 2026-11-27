@@ -78,6 +78,7 @@ var subcommands = map[string]func([]string) int{
 	"chat":     cmdChat,
 	"sessions": cmdSessions,
 	"doctor":   cmdDoctor,
+	"serve":    cmdServe,
 }
 
 // Main runs the command with argv (without the program name) and returns
@@ -139,6 +140,7 @@ USAGE
   agentloop sessions show <id>    print a session's trace
   agentloop sessions rm <id>...   delete stored sessions
   agentloop sessions revoke <id>  forget a session's approvals
+  agentloop serve --config <file> run as an HTTP/SSE service (docs/cli/serve.md)
   agentloop doctor [flags]        check the environment and workspace
   agentloop version               print version information
   agentloop help                  print this message
