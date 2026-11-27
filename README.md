@@ -221,7 +221,7 @@ agentloop --context-window 8192 --timeout 30m "..."
 `agentloop serve --config <file>` runs the engine as an HTTP service for
 backends in other languages: `POST /v1/runs` starts a run, `GET
 /v1/runs/{id}/events` streams it as Server-Sent Events, and capabilities come
-from a JSON file rather than Go code. See [docs/cli/serve.md](docs/cli/serve.md).
+from a JSON file rather than Go code. See [docs/cli/serve.md](docs/cli/serve.md). A `Dockerfile` runs it as a sidecar container ([docs](docs/cli/serve.md#running-in-a-container)).
 
 `agentloop doctor` reports the resolved endpoint and model, makes one
 real request to confirm the endpoint answers (`--offline` skips it), and

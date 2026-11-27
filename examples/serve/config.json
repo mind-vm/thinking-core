@@ -1,0 +1,22 @@
+{
+  "listen": "0.0.0.0:8080",
+  "store": "/data/thinking-core.db",
+  "tokenEnv": "THINKING_CORE_TOKEN",
+  "maxIterations": 20,
+  "policy": {
+    "allowTools": [],
+    "urlAllowPrefixes": ["http://backend/"],
+    "allowCommands": [],
+    "allowPrivateNetworks": true
+  },
+  "openapi": [
+    {
+      "name": "orders",
+      "description": "The backend's order API",
+      "spec": "./orders.yaml",
+      "baseURL": "http://backend"
+    }
+  ],
+  "workspace": null,
+  "capabilities": ["fetch", "markdown"]
+}
