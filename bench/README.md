@@ -13,6 +13,12 @@ It has not been run against a real model yet. No numbers are claimed
 here; results go in a later change, together with whatever the ADRs then
 need to say.
 
+Step 1 came first and has numbers: [`reliability/`](reliability/README.md)
+measures the mechanics on ten small tasks under six ways of acting —
+no carry, `main(state)`, `state`, a `data` object shown by value, native
+tool calls, and the agentloop — on six cheap models
+([results](../docs/bench/01-reliability.md)).
+
 ## What is measured
 
 Two agents answer the same tasks over the same backends, against the same
