@@ -134,6 +134,7 @@ it bears on.
 | [0015](0015-observability-seams.md) | Observability is a seam, and off unless wired | Working | Medium |
 | [0016](0016-mit-and-public.md) | MIT and public | Working | High |
 | [0017](0017-scripts-keep-data-in-state.md) | Scripts keep data in state, not in a run(args) return | Working | Medium |
+| [0018](0018-mcp-tools-as-sandbox-functions.md) | MCP tools as sandbox functions behind an interface; the SDK in its own module | Exploring | Medium |
 
 ## Lineage
 

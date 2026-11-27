@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"bufio"
@@ -68,6 +68,14 @@ type options struct {
 	allowExec  string
 	allowShell bool
 	execNames  []string
+
+	// mcp holds the raw --mcp values; mcpSpecs is what resolve parses them
+	// into, and mcpGrants the "mcp.<server>.*" policy entries --allow-mcp
+	// expands to.
+	mcp       mcpFlag
+	allowMCP  string
+	mcpSpecs  []MCPSpec
+	mcpGrants []string
 }
 
 // bind registers the shared flags on fs. Every subcommand binds the
@@ -90,6 +98,8 @@ func (o *options) bind(fs *flag.FlagSet) {
 	fs.BoolVar(&o.noNetwork, "no-network", false, "remove fetch() and require('http') — the agent can read the workspace but cannot send it anywhere")
 	fs.BoolVar(&o.noExec, "no-exec", false, "remove exec() — the agent cannot run commands at all")
 	fs.StringVar(&o.allowExec, "allow-exec", "", "comma-separated command names to run without asking, e.g. go,git")
+	fs.Var(&o.mcp, "mcp", "an MCP server whose tools become functions: name=command args... (stdio) or name=https://url; repeatable")
+	fs.StringVar(&o.allowMCP, "allow-mcp", "", "comma-separated --mcp server names whose tools may change things without asking")
 	fs.BoolVar(&o.allowShell, "dangerously-allow-shell", false, "let exec() take a shell string as well as an argv array")
 }
 
@@ -136,7 +146,7 @@ func (o *options) resolve() error {
 	if o.noExec && (len(o.execNames) > 0 || o.allowShell) {
 		return errors.New("--no-exec removes exec() entirely, so there is nothing for --allow-exec or --dangerously-allow-shell to permit")
 	}
-	return nil
+	return o.resolveMCP()
 }
 
 // splitList parses a comma-separated flag value, ignoring empty entries
@@ -157,7 +167,7 @@ func splitList(v string) []string {
 // which is the right shape but cannot carry the command grants
 // --allow-exec expresses, so one is built explicitly here.
 func (o *options) policy() sandbox.PolicyChecker {
-	return sandbox.DefaultPolicy{AllowCommands: o.execNames}
+	return sandbox.DefaultPolicy{AllowCommands: o.execNames, AllowTools: o.mcpGrants}
 }
 
 // resolveApprovalMode settles how permission prompts get answered.
@@ -242,10 +252,18 @@ type session struct {
 
 	// root is the workspace handle every file primitive resolves against.
 	root *os.Root
+
+	// closers are the --mcp servers to shut down, child processes
+	// included.
+	closers []io.Closer
 }
 
-// close releases the session database and the workspace handle.
+// close releases the session database, the workspace handle and any MCP
+// servers.
 func (s *session) close() {
+	for _, c := range s.closers {
+		_ = c.Close()
+	}
 	if s.store != nil {
 		s.store.Close()
 	}
@@ -322,6 +340,16 @@ func newSession(o *options, warn func(string), in *bufio.Reader) (*session, erro
 	// that boundary into a session the user meant to start clean.
 	prompter := newTerminalPrompter(in, os.Stderr, o.approval, store, func() string { return sess.id })
 	caps := buildCapabilities(o, client, prompter, prompter.questions(), root, warn)
+	mcpCaps, closers, err := mcpCapabilities(context.Background(), o, prompter)
+	if err != nil {
+		root.Close()
+		if store != nil {
+			store.Close()
+		}
+		return nil, err
+	}
+	caps = append(caps, mcpCaps...)
+	sess.closers = closers
 	caps = append(caps, skills.Capabilities(sk)...)
 	if o.sized() {
 		// RenderCatalog writes pointers to projectGet(); without these

@@ -81,8 +81,12 @@ tenant's reply reads as "no live run". It takes opaque ids and an
 Optional `sandbox.Pack`s that are generically useful but don't belong in the
 core sandbox package: `EmailPack` (`sendEmail`), `SecretPack` (`secret`),
 `SearchPack` (`documentSearch`), `StoresPack` (`stores.list`/`stores.read`),
-and `OpenAPIPack`, which generates a whole `require()`-able skill — one JS
-function per operation — from an OpenAPI 3 document. Not part of
+`OpenAPIPack`, which generates a whole `require()`-able skill — one JS
+function per operation — from an OpenAPI 3 document, and `MCPPack`, which
+exposes an MCP server's tools as `require('mcp/<server>')` so a script can
+chain them ([ADR-0018](../adr/0018-mcp-tools-as-sandbox-functions.md)). The
+pack takes a two-method `MCPSession`; the SDK-backed client is the separate
+module `github.com/mind-vm/thinking-core/ext/mcp`. Not part of
 `DefaultCapabilities` — wire in the ones you need. See [Extending → Optional
 extension packs](../extending/index.md#optional-extension-packs) and
 [Extending → Generating a skill from an OpenAPI

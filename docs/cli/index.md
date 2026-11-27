@@ -148,6 +148,15 @@ the agent is told so.
 | `--approve deny` | refuse every permission request |
 | `--ephemeral` | record nothing |
 
+`--mcp name=command args...` (or `name=https://url`, repeatable) makes an MCP
+server's tools functions of `require('mcp/name')`. Tools the server marks
+read-only run freely; the rest ask like a write does, and `--allow-mcp name`
+grants a server's tools up front. The stock binary links no MCP SDK and says so;
+install the one from `github.com/mind-vm/thinking-core/ext/mcp/cmd/agentloop`
+for this flag. A stdio server inherits only `PATH`, `HOME` and a few similar
+variables, never your API keys, and may still reach the network under
+`--no-network`; an HTTP server is refused there.
+
 `--no-network` pairs with the ungated reads: it is how a sensitive tree gets
 worked on with no way for its contents to leave the machine.
 

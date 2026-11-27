@@ -29,10 +29,10 @@ builds:
       - goos: windows
         goarch: arm64
     ldflags:
-      # -X stamps the version main.versionString() prefers over the build
+      # -X stamps the version cli.versionString() prefers over the build
       # info it otherwise infers. -s -w drop the symbol and DWARF tables,
       # which a CLI has no use for.
-      - -s -w -X main.version={{ .Version }}
+      - -s -w -X github.com/mind-vm/thinking-core/cmd/agentloop/cli.version={{ .Version }}
     mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
@@ -71,6 +71,7 @@ git:
   # tag and v0.4.0 from the release notes silently.
   ignore_tags:
     - "browser/chrome/*"
+    - "ext/mcp/*"
 
 release:
   # The changelog above is a list of commit subjects. It says what moved; it

@@ -12,7 +12,8 @@
 // callback or a small interface (EmailPack's send func, SecretPack's
 // get func, SearchPack's search func, StoresPack's StoresBackend)
 // rather than a concrete dependency, so this package stays free of any
-// mail/secrets/search-backend import. An application wires its own
+// mail/secrets/search-backend/MCP import (MCPPack takes an MCPSession; the
+// SDK-backed one is the separate module ext/mcp). An application wires its own
 // backend in when it builds the agentloop.Capability that installs the
 // pack — see the package examples and DefaultCapabilities in the
 // agentloop package for the pattern.

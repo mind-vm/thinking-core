@@ -64,12 +64,17 @@ is kept verbatim) and large data never appears in the context window twice.
   output, and a timeout that reclaims the whole process group),
   `BlocksPack` (`emitMarkdown`, `emitTable`, `emitChart`, `emitStats` —
   render blocks a client draws, checked so a chart cannot name a column
-  no row has), and `OpenAPIPack`, which generates a
+  no row has), `OpenAPIPack`, which generates a
   `require()`-able skill — one JS function per operation — from an
-  OpenAPI 3 document. Each takes a callback, small interface, or (for
+  OpenAPI 3 document, and `MCPPack`, which does the same for the tools
+  of an MCP server (`require('mcp/<server>')`, one script chaining
+  several tool calls instead of a round-trip each; non-read-only tools
+  ask first). Each takes a callback, small interface, or (for
   `OpenAPIPack`) a parsed spec, same decoupling the core packs use, so
-  this package stays free of any mail/secrets/search-backend/HTTP-client
-  dependency of its own.
+  this package stays free of any mail/secrets/search-backend/HTTP-client/MCP
+  dependency of its own. The MCP client is a *separate module*,
+  `github.com/mind-vm/thinking-core/ext/mcp`, which also builds the
+  `agentloop` binary that has `--mcp`.
 - **`browser`** — a `browser` global that drives a real browser:
   `goto` / `click` / `type` / `text` against CSS selectors, plus
   Set-of-Marks, where `mark()` numbers every visible interactive
@@ -366,6 +371,10 @@ Three things will catch you:
 - **`browser/chrome` is a separate module.** It carries its own
   `browser/chrome/vX.Y.Z` tags and its own `require` on this module. Tag it
   after the release its `require` names.
+- **`ext/mcp` is a separate module too**, with `ext/mcp/vX.Y.Z` tags, and its
+  `require` on this module must name a release that contains `ext.MCPPack`
+  and `cmd/agentloop/cli`. Until that release exists, `go install` of its
+  command fails; the `replace` only helps inside the repository.
 
 ## Extending
 
